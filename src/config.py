@@ -1,26 +1,17 @@
-import os
 import sys
 from datetime import timedelta, timezone
 from pathlib import Path
 
-from dotenv import load_dotenv
-
+from src import db
 from src.crypto import decrypt, encrypt, is_encrypted
 
 # ── 공용 상수 ─────────────────────────────────────────────────
 KST = timezone(timedelta(hours=9))
 
-# .env 파일 로드 (없으면 환경변수만 사용)
-_env_path = Path(__file__).parent.parent / ".env"
-load_dotenv(_env_path)
 
-
-def _load_credential(env_key: str) -> str:
-    """
-    환경변수를 읽어 복호화한다.
-    복호화 실패 시(키 불일치 등) 빈 문자열을 반환하되, .env 값은 보존한다.
-    """
-    raw = os.getenv(env_key, "")
+def _load_credential(key: str) -> str:
+    """DB에서 읽어 복호화한다. 복호화 실패 시 빈 문자열 반환."""
+    raw = db.get(key)
     if not raw:
         return ""
     if is_encrypted(raw):
@@ -64,32 +55,46 @@ def get_data_path(filename: str) -> Path:
 
 
 class Config:
-    LMS_USER_ID: str = _load_credential("LMS_USER_ID")
-    LMS_PASSWORD: str = _load_credential("LMS_PASSWORD")
-    GOOGLE_API_KEY: str = _load_credential("GOOGLE_API_KEY")
-    OPENAI_API_KEY: str = _load_credential("OPENAI_API_KEY")
-    WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "base")
-    # STT 언어: ko, en, 빈 문자열(자동 감지)
-    STT_LANGUAGE: str = os.getenv("STT_LANGUAGE", "ko")
-    DOWNLOAD_DIR: str = os.getenv("DOWNLOAD_DIR", "")
-    # 다운로드 규칙: video / audio / both
-    DOWNLOAD_RULE: str = os.getenv("DOWNLOAD_RULE", "")
-    # STT 사용 여부: true / false
-    STT_ENABLED: str = os.getenv("STT_ENABLED", "")
-    # AI 요약 사용 여부: true / false
-    AI_ENABLED: str = os.getenv("AI_ENABLED", "")
-    # AI 에이전트 종류: gemini / openai
-    AI_AGENT: str = os.getenv("AI_AGENT", "")
-    # Gemini 모델 ID
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "")
-    # 요약 프롬프트 추가 지시사항
-    SUMMARY_PROMPT_EXTRA: str = os.getenv("SUMMARY_PROMPT_EXTRA", "")
-    # 텔레그램 봇 연동
-    TELEGRAM_ENABLED: str = os.getenv("TELEGRAM_ENABLED", "")
-    TELEGRAM_BOT_TOKEN: str = _load_credential("TELEGRAM_BOT_TOKEN")
-    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
-    # 텔레그램 전송 후 파일 자동 삭제
-    TELEGRAM_AUTO_DELETE: str = os.getenv("TELEGRAM_AUTO_DELETE", "")
+    # 클래스 정의 시점에는 기본값으로 초기화.
+    # 앱 시작 시 Config.load()를 호출해 DB에서 실제 값을 로드한다.
+    LMS_USER_ID: str = ""
+    LMS_PASSWORD: str = ""
+    GOOGLE_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    WHISPER_MODEL: str = "base"
+    STT_LANGUAGE: str = "ko"
+    DOWNLOAD_DIR: str = ""
+    DOWNLOAD_RULE: str = ""
+    STT_ENABLED: str = ""
+    AI_ENABLED: str = ""
+    AI_AGENT: str = ""
+    GEMINI_MODEL: str = ""
+    SUMMARY_PROMPT_EXTRA: str = ""
+    TELEGRAM_ENABLED: str = ""
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+    TELEGRAM_AUTO_DELETE: str = ""
+
+    @classmethod
+    def load(cls) -> None:
+        """DB에서 모든 설정을 로드한다. 앱 시작 시 반드시 1회 호출."""
+        cls.LMS_USER_ID = _load_credential("LMS_USER_ID")
+        cls.LMS_PASSWORD = _load_credential("LMS_PASSWORD")
+        cls.GOOGLE_API_KEY = _load_credential("GOOGLE_API_KEY")
+        cls.OPENAI_API_KEY = _load_credential("OPENAI_API_KEY")
+        cls.TELEGRAM_BOT_TOKEN = _load_credential("TELEGRAM_BOT_TOKEN")
+        cls.WHISPER_MODEL = db.get("WHISPER_MODEL", "base")
+        cls.STT_LANGUAGE = db.get("STT_LANGUAGE", "ko")
+        cls.DOWNLOAD_DIR = db.get("DOWNLOAD_DIR", "")
+        cls.DOWNLOAD_RULE = db.get("DOWNLOAD_RULE", "")
+        cls.STT_ENABLED = db.get("STT_ENABLED", "")
+        cls.AI_ENABLED = db.get("AI_ENABLED", "")
+        cls.AI_AGENT = db.get("AI_AGENT", "")
+        cls.GEMINI_MODEL = db.get("GEMINI_MODEL", "")
+        cls.SUMMARY_PROMPT_EXTRA = db.get("SUMMARY_PROMPT_EXTRA", "")
+        cls.TELEGRAM_ENABLED = db.get("TELEGRAM_ENABLED", "")
+        cls.TELEGRAM_CHAT_ID = db.get("TELEGRAM_CHAT_ID", "")
+        cls.TELEGRAM_AUTO_DELETE = db.get("TELEGRAM_AUTO_DELETE", "")
 
     @classmethod
     def get_telegram_credentials(cls) -> tuple[str, str] | None:
@@ -126,7 +131,7 @@ class Config:
         gemini_model: str = "",
         summary_prompt_extra: str = "",
     ) -> None:
-        """설정 항목을 .env 파일에 저장한다."""
+        """설정 항목을 DB에 저장한다."""
         cls.DOWNLOAD_DIR = download_dir
         cls.DOWNLOAD_RULE = download_rule
         cls.STT_ENABLED = "true" if stt_enabled else "false"
@@ -135,11 +140,6 @@ class Config:
         cls.SUMMARY_PROMPT_EXTRA = summary_prompt_extra
         if gemini_model:
             cls.GEMINI_MODEL = gemini_model
-        # API 키는 선택한 에이전트에 맞게 저장
-        if ai_enabled and ai_agent == "gemini":
-            cls.GOOGLE_API_KEY = api_key
-        elif ai_enabled and ai_agent == "openai":
-            cls.OPENAI_API_KEY = api_key
 
         to_save: dict = {
             "DOWNLOAD_DIR": download_dir,
@@ -152,19 +152,22 @@ class Config:
         if gemini_model:
             to_save["GEMINI_MODEL"] = gemini_model
         if ai_enabled and ai_agent == "gemini":
+            cls.GOOGLE_API_KEY = api_key
             to_save["GOOGLE_API_KEY"] = encrypt(api_key) if api_key else ""
         elif ai_enabled and ai_agent == "openai":
+            cls.OPENAI_API_KEY = api_key
             to_save["OPENAI_API_KEY"] = encrypt(api_key) if api_key else ""
-        cls._save_env(to_save)
+
+        db.set_many(to_save)
 
     @classmethod
     def save_telegram(cls, enabled: bool, bot_token: str, chat_id: str, auto_delete: bool) -> None:
-        """텔레그램 설정을 .env 파일에 저장한다."""
+        """텔레그램 설정을 DB에 저장한다."""
         cls.TELEGRAM_ENABLED = "true" if enabled else "false"
         cls.TELEGRAM_BOT_TOKEN = bot_token
         cls.TELEGRAM_CHAT_ID = chat_id
         cls.TELEGRAM_AUTO_DELETE = "true" if auto_delete else "false"
-        cls._save_env(
+        db.set_many(
             {
                 "TELEGRAM_ENABLED": cls.TELEGRAM_ENABLED,
                 "TELEGRAM_BOT_TOKEN": encrypt(bot_token) if bot_token else "",
@@ -175,10 +178,10 @@ class Config:
 
     @classmethod
     def save_credentials(cls, user_id: str, password: str) -> None:
-        """계정 정보를 암호화해서 .env 파일에 저장"""
+        """계정 정보를 암호화해서 DB에 저장."""
         cls.LMS_USER_ID = user_id
         cls.LMS_PASSWORD = password
-        cls._save_env(
+        db.set_many(
             {
                 "LMS_USER_ID": encrypt(user_id),
                 "LMS_PASSWORD": encrypt(password),
@@ -187,30 +190,8 @@ class Config:
 
     @classmethod
     def _save_env(cls, keys_to_update: dict) -> None:
-        """지정한 키/값을 .env 파일에 저장(덮어쓰기)한다."""
-        env_path = Path(__file__).parent.parent / ".env"
-        lines = []
+        """지정한 키/값을 DB에 저장한다.
 
-        if env_path.exists():
-            with open(env_path, encoding="utf-8") as f:
-                lines = f.readlines()
-
-        updated_keys = set()
-        new_lines = []
-
-        for line in lines:
-            stripped = line.strip()
-            if "=" in stripped and not stripped.startswith("#"):
-                key = stripped.split("=", 1)[0].strip()
-                if key in keys_to_update:
-                    new_lines.append(f"{key}={keys_to_update[key]}\n")
-                    updated_keys.add(key)
-                    continue
-            new_lines.append(line)
-
-        for key, value in keys_to_update.items():
-            if key not in updated_keys:
-                new_lines.append(f"{key}={value}\n")
-
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
+        settings.py 등에서 직접 호출하는 경우를 위해 유지.
+        """
+        db.set_many(keys_to_update)

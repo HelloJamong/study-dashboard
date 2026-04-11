@@ -26,12 +26,14 @@ _MAX_LOGIN_ATTEMPTS = 3
 
 
 async def run():
-    # .env 파일이 없으면 빈 파일 생성 (볼륨 마운트 후 디렉토리가 생성되는 것 방지)
+    # DB 초기화 및 기존 .env 마이그레이션 (최초 실행 시 1회)
     from pathlib import Path
 
-    env_path = Path(__file__).parent.parent / ".env"
-    if not env_path.exists():
-        env_path.touch()
+    from src import db
+
+    db.init()
+    db.migrate_from_env(Path(__file__).parent.parent / ".env")
+    Config.load()
 
     # ── 1. 인증 ──────────────────────────────────────────────────
     scraper: CourseScraper | None = None
