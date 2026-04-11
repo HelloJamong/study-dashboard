@@ -1,10 +1,7 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch: # 프로젝트 재건 중 — 준비 완료 후 push/pull_request 트리거로 복구
 
 jobs:
   lint:
