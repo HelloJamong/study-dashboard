@@ -1,0 +1,40 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from backend.api.routes import auth, courses, player, settings
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from src import db
+    from src.config import Config
+
+    db.init()
+    Config.load()
+    yield
+    from backend.api.state import app_state
+
+    if app_state.scraper:
+        await app_state.scraper.close()
+
+
+app = FastAPI(title="Study Helper API", version="1.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(courses.router, prefix="/api/courses", tags=["courses"])
+app.include_router(player.router, prefix="/api/player", tags=["player"])
+app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
