@@ -1,0 +1,48 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+.secret_key
+
+# Downloads & generated data
+data/*
+!data/.gitkeep
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.uv/
+
+# Node
+node_modules/
+*.lock
+!package-lock.json
+!uv.lock
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OMC artifacts
+.omc/
+!.omc/skills/
+
+# Planning artifacts
+plan.md
+plan-*.md
+research.md
+docs/web-gui-plan.md

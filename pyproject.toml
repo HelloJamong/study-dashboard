@@ -1,0 +1,79 @@
+[project]
+name = "study-helper"
+version = "0.1.0"
+description = "숭실대학교 LMS 강의 백그라운드 재생 및 다운로드/요약 도구"
+requires-python = ">=3.11,<3.13"
+
+dependencies = [
+    # 브라우저 자동화 (로그인, 스크래핑, 백그라운드 재생)
+    "playwright>=1.52.0",
+    # CUI 인터페이스
+    "rich>=13.0.0",
+    "click>=8.0.0",
+    # 영상/음성 다운로드 (청크 스트리밍)
+    "requests>=2.32.0",
+    # STT — faster-whisper (CTranslate2 기반, torch 불필요)
+    "faster-whisper>=1.1.0",
+    # AI 요약
+    "google-genai>=1.0.0",
+    "openai>=1.0.0",
+    # 환경변수
+    "python-dotenv>=1.0.0",
+    "cryptography>=46.0.5",
+    # CVE-2025-68146, CVE-2026-22701 대응 — 3.20.0 취약 버전 제외
+    "filelock>=3.25.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.11",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25",
+]
+
+[project.scripts]
+study-helper = "src.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",    # line-length (formatter가 처리)
+    "N806",    # 함수 내 상수성 변수 (대문자 허용)
+    "SIM105",  # contextlib.suppress — try-except-pass가 더 명확한 경우 많음
+    "SIM108",  # 삼항 연산자 — 한국어 f-string에서 가독성 저하
+    "SIM102",  # nested if — 조건 분리가 더 명확한 경우 많음
+    "SIM117",  # nested with — 호환성 유지
+    "RUF002",  # 한국어 docstring 내 유니코드 문자 허용
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

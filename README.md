@@ -1,2 +1,188 @@
 # study-dashboard
-LMS Tweaks from study-helper
+
+숭실대학교 Learning X(canvas.ssu.ac.kr) 강의 영상을 자동으로 재생·변환·요약하여
+웹 대시보드에서 학기 / 과목 / 주차별 마크다운 형식으로 열람할 수 있는 개인 학습 서비스입니다.
+
+---
+
+## 화면 흐름
+
+```
+로그인 (Learning X 계정)
+  └── 메인 대시보드
+        ├── [자동 모드 ON/OFF 토글]
+        │     ├── (ON)  현재 재생 중인 강의 상태 표시
+        │     └── (ON)  다음 실행 스케줄 표시
+        └── 학기 선택  (예: 2026년 1학기 / 2026년 2학기)
+              └── 과목 목록
+                    └── 주차별 강의 요약  (마크다운 렌더링)
+```
+
+---
+
+## 자동화 파이프라인
+
+```
+강의 영상 백그라운드 재생 → Whisper STT → Gemini 요약 → 마크다운 저장 → 웹 열람
+```
+
+---
+
+## 주요 기능
+
+| 기능 | 설명 |
+|------|------|
+| LMS 연동 로그인 | Learning X 계정(학번/비밀번호)으로 인증 |
+| 학기·과목·강의 스크래핑 | 로그인 후 전체 강의 목록 자동 수집 |
+| 백그라운드 재생 | 영상·소리 출력 없이 강의 자동 재생 (출석 처리) |
+| 로컬 STT | faster-whisper로 오프라인 음성 텍스트 변환 |
+| AI 요약 | Gemini API로 강의 내용 자동 요약 |
+| 마크다운 대시보드 | 학기 → 과목 → 주차 계층으로 요약 열람 |
+| 자동 모드 | 스케줄에 따라 미시청 강의를 자동으로 재생·변환·요약 |
+| 실시간 상태 표시 | 현재 재생 중인 강의 및 다음 스케줄을 대시보드에 표시 |
+
+---
+
+## 메인 대시보드
+
+로그인 후 표시되는 메인 페이지에서 다음 정보를 확인하고 제어할 수 있습니다.
+
+### 자동 모드 토글
+
+| 상태 | 동작 |
+|------|------|
+| OFF | 자동 실행 없음. 학기·과목 탐색 및 요약 열람만 가능 |
+| ON | 설정된 스케줄에 따라 미시청 강의 자동 처리 시작 |
+
+### 자동 모드 ON 시 표시 정보
+
+- **현재 재생 중인 강의** — 과목명, 강의명, 파이프라인 단계 (`재생 중` / `STT 변환 중` / `요약 중`)
+- **다음 스케줄** — 다음 자동 실행 예정 시각 및 처리 대상 강의 수
+
+> 자동 모드 스케줄 기본값: KST 09:00 / 13:00 / 18:00 / 23:00
+
+---
+
+## 기술 스택
+
+### Backend
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white) ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=flat-square&logo=playwright&logoColor=white) ![Whisper](https://img.shields.io/badge/Whisper-412991?style=flat-square&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
+
+### Frontend
+![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white) ![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat-square&logo=vite&logoColor=white) ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
+
+### Infrastructure
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white) ![ffmpeg](https://img.shields.io/badge/ffmpeg-007808?style=flat-square&logo=ffmpeg&logoColor=white)
+
+---
+
+## 프로젝트 구조
+
+```
+study-dashboard/
+├── backend/
+│   ├── api/              # REST / WebSocket 라우터
+│   ├── core/             # 설정, 인증, 암호화
+│   ├── scraper/          # 과목·강의 스크래핑
+│   ├── player/           # 백그라운드 재생
+│   ├── converter/        # mp4 → mp3 (ffmpeg)
+│   ├── stt/              # faster-whisper STT
+│   └── summarizer/       # Gemini 요약
+├── frontend/
+│   └── src/
+│       ├── pages/        # Login, Semesters, Courses, Summary
+│       └── components/
+├── data/
+│   └── summaries/        # 마크다운 요약 파일 저장 경로
+├── docker-compose.yml
+└── .env.example
+```
+
+---
+
+## 시작 전 필요한 것
+
+| 항목 | 설명 |
+|------|------|
+| 숭실대 Learning X 계정 | 학번 + 비밀번호 |
+| Docker | 컨테이너 실행 환경 |
+| Google API 키 | Gemini 요약 사용 시 필요 — [발급 방법](docs/gemini-api-key.md) |
+
+---
+
+## 설치 및 실행
+
+### 1. 저장소 클론
+
+```bash
+git clone https://github.com/HelloJamong/study-dashboard.git
+cd study-dashboard
+```
+
+### 2. 환경변수 설정
+
+```bash
+cp .env.example .env
+# .env 파일을 열어 GOOGLE_API_KEY 등 필요한 값 입력
+```
+
+### 3. 실행
+
+```bash
+docker compose up --build
+```
+
+브라우저에서 `http://localhost:3000` 접속 후 Learning X 계정으로 로그인합니다.
+
+---
+
+## 환경 변수 (.env)
+
+계정 정보는 웹 로그인 화면에서 입력합니다. 아래 항목은 `.env`에 직접 설정합니다.
+
+```
+# Gemini AI 요약
+GOOGLE_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
+
+# STT 설정
+STT_ENABLED=true
+WHISPER_MODEL=base     # tiny / base / small / medium / large
+```
+
+### Whisper 모델 크기
+
+faster-whisper는 INT8 양자화를 적용하므로 openai-whisper 대비 모델 파일 크기가 약 절반입니다.
+
+| 모델 | 크기 (INT8) | 정확도 |
+|------|------------|--------|
+| tiny | ~39MB | 낮음 |
+| base | ~74MB | 보통 (기본값) |
+| small | ~122MB | 좋음 |
+| medium | ~385MB | 높음 |
+| large | ~750MB | 최고 |
+
+---
+
+## 개발 참고
+
+Learning X 구조 분석, 재생/다운로드 구현 방식, 셀렉터 정의 등 기술 문서는 아래를 참고하세요.
+
+- [Learning X 구조 분석 정의서](docs/lms-analysis.md)
+
+---
+
+## 주의사항
+
+- 본 서비스는 개인 학습 목적으로만 사용하세요.
+- Learning X 서비스 약관을 준수하여 사용하시기 바랍니다.
+- 학번, 비밀번호는 암호화되어 처리되며 서버 외부에 저장되지 않습니다.
+- `.env` 파일 및 `.secret_key`는 절대 외부에 공유하지 마세요.
+
+### 면책 조항
+
+본 프로젝트는 개인 학습 편의를 위해 제작된 비공식 도구입니다.
+
+- 본 프로젝트의 사용으로 인해 발생하는 학사 불이익, 계정 제재, 데이터 손실 등 모든 결과에 대한 책임은 전적으로 사용자 본인에게 있습니다.
+- 개발자는 어떠한 법적·도의적 책임도 지지 않습니다.
+- 본 프로젝트는 [Claude AI](https://claude.ai)를 활용하여 개발되었습니다.

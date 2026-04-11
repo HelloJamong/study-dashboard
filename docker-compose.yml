@@ -1,0 +1,49 @@
+services:
+  study-helper:
+    image: igor0670/study-helper:latest
+
+    # ── 소스 수정 후 로컬 빌드 시 위 줄을 아래 두 줄로 교체 ──────────
+    # build: .
+    # image: study-helper:latest
+    # ──────────────────────────────────────────────────────────────────
+
+    # CUI 인터랙션을 위한 터미널 연결
+    stdin_open: true
+    tty: true
+
+    environment:
+      - TZ=Asia/Seoul
+
+    env_file:
+      - .env
+
+    volumes:
+      # .env 파일 마운트 — save_credentials() 저장 내용이 호스트에 영속화됨
+      - ./.env:/app/.env
+
+      # 암호화 키 — 없으면 매 실행마다 새 키 생성 → 복호화 실패 → 계정 재입력
+      - ./.secret_key:/app/.secret_key
+
+      # 소스 코드 실시간 반영 — 로컬 빌드 사용 시에만 활성화
+      # ── Docker Hub 이미지 사용 시 아래 두 줄 주석 처리 ───────────────
+      # - ./src:/app/src
+      # ──────────────────────────────────────────────────────────────────
+
+      # 로그 파일 호스트 접근
+      - ./logs:/app/logs
+
+      # 다운로드 파일 (영상, 음성, 텍스트, 요약) — 호스트에서 직접 접근 가능
+      - ./data:/data
+
+      # Whisper 모델 캐시 — 재빌드 시 재다운로드 방지 (~150MB/base, ~1.5GB/large)
+      - whisper-cache:/root/.cache/huggingface
+
+      # Playwright Chromium 캐시 — 재빌드 시 재다운로드 방지
+      - playwright-cache:/root/.cache/ms-playwright
+
+    # 컨테이너 종료 후 자동 제거 (데이터는 볼륨에 보존)
+    restart: "no"
+
+volumes:
+  whisper-cache:
+  playwright-cache:
