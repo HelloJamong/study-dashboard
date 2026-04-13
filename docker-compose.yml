@@ -2,6 +2,7 @@ services:
 
   # ── 백엔드: FastAPI REST API ──────────────────────────────────────
   backend:
+    container_name: dashboard-backend
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -29,6 +30,7 @@ services:
 
   # ── 프론트엔드: nginx 정적 서빙 + API 프록시 ─────────────────────
   frontend:
+    container_name: dashboard-frontend
     build:
       context: ./frontend
     ports:
