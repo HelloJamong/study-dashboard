@@ -9,7 +9,8 @@ services:
     # 프로덕션 전환 시: --workers 4 로 교체
     command: backend.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "8000:8000"
+      # 직접 접근은 로컬 개발/헬스체크용으로만 노출하고, 브라우저 트래픽은 nginx HTTPS를 사용한다.
+      - "127.0.0.1:8000:8000"
     environment:
       - TZ=Asia/Seoul
     volumes:
@@ -31,11 +32,14 @@ services:
     build:
       context: ./frontend
     ports:
+      # HTTP(3000)는 HTTPS(3443)로 리다이렉트
       - "3000:80"
+      - "3443:443"
     volumes:
       # 개발용 — HTML/nginx 수정 시 재빌드 없이 즉시 반영
       - ./frontend/index.html:/usr/share/nginx/html/index.html:ro
       - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
     depends_on:
       - backend
     restart: unless-stopped
