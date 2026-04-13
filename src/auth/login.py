@@ -52,7 +52,7 @@ async def _wait_for_login_result(page: Page, dialog_seen: asyncio.Event) -> bool
         if dialog_seen.is_set():
             return False
 
-        if "login" not in page.url:
+        if "canvas.ssu.ac.kr" in page.url and "login" not in page.url:
             with suppress(Exception):
                 await page.wait_for_load_state("networkidle", timeout=_LOGIN_PAGE_TIMEOUT_MS)
             return True
@@ -71,7 +71,7 @@ async def _wait_for_login_result(page: Page, dialog_seen: asyncio.Event) -> bool
 
         await asyncio.sleep(0.25)
 
-    return "login" not in page.url
+    return "canvas.ssu.ac.kr" in page.url and "login" not in page.url
 
 
 async def perform_login(page: Page, username: str, password: str) -> bool:
