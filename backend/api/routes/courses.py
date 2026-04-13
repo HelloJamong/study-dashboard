@@ -1,3 +1,6 @@
+from collections import Counter
+from pathlib import Path
+
 from backend.api.state import app_state
 from fastapi import APIRouter, HTTPException
 
@@ -7,6 +10,14 @@ router = APIRouter()
 def _require_auth():
     if not app_state.scraper:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+
+
+def _summaries_dir() -> Path:
+    """요약 저장 디렉터리 — Docker /data 우선, 없으면 로컬 data/ 사용."""
+    for candidate in (Path("/data/summaries"), Path("data/summaries")):
+        if candidate.parent.exists():
+            return candidate
+    return Path("data/summaries")
 
 
 @router.get("")
@@ -45,6 +56,29 @@ async def get_stats():
         d.total_video_count - d.pending_video_count for d in app_state.details if d
     )
     return {"total_videos": total, "completed_videos": completed}
+
+
+@router.get("/terms")
+async def get_terms():
+    _require_auth()
+
+    # 과목 목록에서 가장 많이 등장하는 term = 현재 학기
+    current_term = ""
+    if app_state.courses:
+        terms = [c.term for c in app_state.courses if c.term]
+        if terms:
+            current_term = Counter(terms).most_common(1)[0][0]
+
+    # 요약 마크다운이 저장된 과거 학기 스캔 (현재 학기 제외)
+    sdir = _summaries_dir()
+    past_terms: list[str] = []
+    if sdir.exists():
+        past_terms = sorted(
+            [d.name for d in sdir.iterdir() if d.is_dir() and d.name != current_term],
+            reverse=True,
+        )
+
+    return {"current_term": current_term, "past_terms": past_terms}
 
 
 @router.post("/refresh")

@@ -261,6 +261,11 @@
           </button>
         </div>
 
+        <!-- 학기 선택 (과거 요약 기록이 있을 때만 표시) -->
+        <div id="term-selector" class="hidden mb-6">
+          <div id="term-tabs" class="flex items-center gap-2 flex-wrap"></div>
+        </div>
+
         <div id="courses-loading" class="hidden flex-col items-center justify-center py-20 text-center">
           <i class="fa-solid fa-spinner fa-spin text-indigo-400 text-3xl mb-4"></i>
           <p class="text-slate-400">강의 목록을 불러오는 중...</p>
@@ -518,6 +523,8 @@
       lastPlayerStatus: '',
       autoScheduleHours: [9, 13, 18, 23],
       autoEnabled: false,
+      currentTerm: '',
+      selectedTerm: null,   // null = 현재 학기
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -537,7 +544,11 @@
       });
 
       // 페이지별 초기화
-      if (page === 'courses' && state.courses.length === 0) loadCourses();
+      if (page === 'courses') {
+        loadTerms();
+        if (state.selectedTerm === null && state.courses.length === 0) loadCourses();
+        if (state.selectedTerm !== null) loadSummaryTerm(state.selectedTerm);
+      }
       if (page === 'settings') loadSettings();
       if (page === 'dashboard') loadStats();
     }
@@ -724,6 +735,79 @@
         $('#stat-total').textContent = s.total_videos;
         $('#stat-pending').textContent = s.total_videos - s.completed_videos;
       } catch {}
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 학기 선택
+    // ═══════════════════════════════════════════════════════════════
+    async function loadTerms() {
+      try {
+        const { current_term, past_terms } = await api('GET', '/api/courses/terms');
+        state.currentTerm = current_term;
+
+        if (past_terms.length === 0) {
+          $('#term-selector').classList.add('hidden');
+          return;
+        }
+
+        const tabs = $('#term-tabs');
+        tabs.innerHTML = '';
+        const allTerms = [
+          { label: current_term || '현재 학기', value: null },
+          ...past_terms.map(t => ({ label: t, value: t })),
+        ];
+        allTerms.forEach(({ label, value }) => {
+          const btn = document.createElement('button');
+          const active = value === state.selectedTerm;
+          btn.className = `term-tab px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
+            active
+              ? 'bg-indigo-500 text-white border-indigo-500'
+              : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-indigo-500/50'
+          }`;
+          btn.textContent = label;
+          btn.dataset.term = value ?? '';
+          btn.addEventListener('click', () => switchTerm(value));
+          tabs.appendChild(btn);
+        });
+        $('#term-selector').classList.remove('hidden');
+      } catch {}
+    }
+
+    function _updateTermTabs() {
+      $$('.term-tab').forEach(btn => {
+        const active = (btn.dataset.term || null) === state.selectedTerm;
+        btn.className = `term-tab px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
+          active
+            ? 'bg-indigo-500 text-white border-indigo-500'
+            : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-indigo-500/50'
+        }`;
+      });
+    }
+
+    function switchTerm(term) {
+      state.selectedTerm = term;
+      _updateTermTabs();
+      $('#course-detail').classList.add('hidden');
+      if (term === null) {
+        state.courses = [];
+        loadCourses();
+      } else {
+        loadSummaryTerm(term);
+      }
+    }
+
+    function loadSummaryTerm(term) {
+      const list = $('#courses-list');
+      $('#course-detail').classList.add('hidden');
+      list.innerHTML = `
+        <div class="flex flex-col items-center justify-center py-16 text-center">
+          <div class="w-14 h-14 bg-slate-800 rounded-2xl flex items-center justify-center mb-4">
+            <i class="fa-solid fa-folder-open text-slate-500 text-xl"></i>
+          </div>
+          <p class="font-semibold text-slate-300">${esc(term)}</p>
+          <p class="text-sm text-slate-500 mt-1">요약 기능 구현 후 이 학기의 강의 요약을 여기서 볼 수 있습니다.</p>
+        </div>
+      `;
     }
 
     // ═══════════════════════════════════════════════════════════════

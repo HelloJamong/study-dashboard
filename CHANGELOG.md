@@ -1,5 +1,24 @@
 # Changelog
 
+## [v26.04.05] - 2026-04-14
+
+### 강의 목록 학기 선택 UI 추가
+
+#### 추가
+- **`GET /api/courses/terms`** (`backend/api/routes/courses.py`)
+  - 현재 학기: 로드된 과목 목록에서 최빈 term 자동 감지
+  - 과거 학기: `data/summaries/{term}/` 디렉터리 스캔 — 요약 마크다운이 저장된 학기만 반환
+  - 현재 과목이 미로드 상태면 `current_term`은 빈 문자열 반환 (클라이언트 폴백)
+- **학기 선택 탭 UI** (`frontend/index.html`)
+  - 강의 목록 페이지 최상단에 학기 탭 영역 추가 (`#term-selector`)
+  - 과거 학기 요약 기록이 없으면 탭 영역 자체를 숨김 — 현재 UX 변화 없음
+  - 과거 학기가 있으면 인디고 pill 탭으로 현재/과거 학기 선택 가능
+  - 학기 전환 시 강의 상세 패널 자동 닫힘
+- **`loadTerms()` / `switchTerm()` / `loadSummaryTerm()`** (`frontend/index.html`)
+  - `loadTerms()`: terms API 호출 후 탭 동적 생성
+  - `switchTerm(term)`: 탭 활성 상태 갱신, 현재 학기면 `loadCourses()` / 과거면 `loadSummaryTerm()`
+  - `loadSummaryTerm(term)`: 요약 기능 구현 전 안내 placeholder 표시 — 추후 요약 API 연결 예정
+
 ## [v26.04.04] - 2026-04-14
 
 ### 대시보드 UX 개선 및 보안 강화
