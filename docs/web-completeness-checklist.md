@@ -1,0 +1,649 @@
+# 웹서비스 완성도 개발 체크리스트
+
+이 문서는 `study-dashboard`가 기존 `study-helper` 핵심 로직을 웹서비스로 완전히 연결하기 위해 남은 작업을 추적하는 체크리스트입니다.
+
+- 기준일: 2026-04-13
+- 현재 웹 구현 범위: 로그인, 과목/강의 목록, 백그라운드 재생 시작/중지, 설정 저장
+- 현재 미구현 핵심 범위: 자동 모드, 다운로드, STT, AI 요약, 요약 대시보드, 학기 선택
+
+## 체크 규칙
+
+- `[ ]` 미완료
+- `[x]` 완료
+- 완료 처리 시 관련 PR/커밋/테스트 근거를 하위 bullet에 기록
+- 기능 구현 후에는 가능한 한 다음 검증을 함께 체크
+  - API smoke test
+  - 프론트 수동 확인
+  - `uv run pytest`
+  - `uv run ruff check .`
+
+---
+
+## 0. 현재 구현된 웹 기능 기준선
+
+- [x] 로그인 화면 구현
+  - 관련 파일: `frontend/index.html`, `backend/api/routes/auth.py`
+- [x] 로그아웃 구현
+  - 관련 API: `POST /api/auth/logout`
+- [x] 인증 상태 확인 구현
+  - 관련 API: `GET /api/auth/status`
+- [x] 과목 목록 조회 구현
+  - 관련 API: `GET /api/courses`
+- [x] 과목 상세/주차별 강의 목록 조회 구현
+  - 관련 API: `GET /api/courses/{course_id}`
+- [x] 강의 백그라운드 재생 시작 구현
+  - 관련 API: `POST /api/player/play`
+- [x] 강의 재생 중지 구현
+  - 관련 API: `POST /api/player/stop`
+- [x] 재생 상태 polling 구현
+  - 관련 API: `GET /api/player/status`
+- [x] 기본 설정 조회/저장 구현
+  - 관련 API: `GET /api/settings`, `PUT /api/settings`
+- [x] Docker Compose 기반 backend/frontend 실행 구조 구현
+  - 관련 파일: `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`
+
+---
+
+## 1. P0 — 웹 재생 안정성 및 사용자 피드백 보강
+
+현재 웹 재생 경로는 `play_lecture()` 반환 상태를 충분히 반영하지 않으며, 실패/완료 상태가 UI에 제대로 표시되지 않을 수 있습니다.
+
+### 1.1 백엔드 재생 결과 처리
+
+- [ ] `backend/api/routes/player.py`에서 `play_lecture()` 반환값을 `final_state`로 수신
+- [ ] `final_state.error`가 있으면 `app_state.playback.error`에 저장
+- [ ] `final_state.ended`가 있으면 `app_state.playback.ended`에 저장
+- [ ] 재생 종료 시 `app_state.playback.current`, `duration`, `progress_pct` 최종값 유지
+- [ ] 취소와 오류를 구분해서 상태 저장
+  - 사용자 중지: cancelled/stopped
+  - 재생 실패: error
+  - 정상 완료: completed
+
+### 1.2 프론트 재생 오류 표시
+
+- [ ] 대시보드에 최근 재생 오류 메시지 영역 추가
+- [ ] `/api/player/status` 응답의 `error`를 UI에 표시
+- [ ] 재생 실패 시 idle 카드만 표시하지 않고 실패 사유 표시
+- [ ] 사용자가 오류 메시지를 닫거나 다음 재생 시 초기화할 수 있게 처리
+
+### 1.3 재생 완료 후 강의 상태 갱신
+
+- [ ] 웹 재생 완료 시 해당 lecture의 `completion`을 로컬 cache에서 `completed`로 갱신
+- [ ] 재생 완료 후 `/api/courses/stats`가 최신 완료/미수강 수를 반환하도록 갱신
+- [ ] 프론트에서 재생 완료 감지 후 통계 카드 자동 refresh
+- [ ] 프론트에서 재생 완료 감지 후 강의 목록/상세 패널 자동 refresh 또는 stale 표시
+- [ ] 완료 갱신 실패 시 사용자가 수동 새로고침하도록 안내
+
+### 1.4 웹 재생 로그
+
+- [ ] 웹 재생 경로에서도 `debug=True` 또는 `log_fn` 기반 로그 수집
+- [ ] 오류 발생 시 `logs/*_play.log` 저장
+- [ ] 정상 완료 시에도 필요하면 진단 로그 저장 여부 결정
+- [ ] `/api/player/status` 또는 별도 API에서 최근 재생 로그 경로/요약 제공 여부 결정
+
+### 1.5 검증
+
+- [ ] 재생 성공 케이스 수동 확인
+- [ ] 재생 실패 케이스 수동 확인
+- [ ] 중지 버튼 동작 확인
+- [ ] 재생 완료 후 통계 갱신 확인
+- [ ] 재생 완료 후 강의 목록 완료 표시 확인
+- [ ] `uv run pytest` 통과
+- [ ] `uv run ruff check .` 통과
+
+---
+
+## 2. P0 — 대시보드 통계 초기 로딩 문제 해결
+
+현재 로그인 직후 `app_state.details`가 비어 있으면 대시보드 통계가 0/0처럼 보일 수 있습니다.
+
+### 2.1 백엔드 통계 API 개선
+
+- [ ] `/api/courses/stats`에서 `app_state.details`가 비어 있으면 과목/상세 정보를 자동 로딩
+- [ ] 로딩 중 중복 요청 방지를 위한 lock 도입 검토
+- [ ] 과목 로딩 실패 시 500 대신 사용자 친화적 에러 메시지 반환
+- [ ] 통계 응답에 `loaded`, `loading`, `last_refreshed_at` 같은 상태 필드 추가 검토
+
+### 2.2 프론트 통계 UX 개선
+
+- [ ] 통계 로딩 중 spinner/skeleton 표시
+- [ ] 로그인 직후 통계가 아직 없으면 “강의 정보를 불러오는 중” 표시
+- [ ] 통계 로딩 실패 시 조용히 무시하지 않고 오류 표시
+- [ ] “강의 목록 새로고침”과 통계 갱신이 같은 cache를 사용하도록 정리
+
+### 2.3 검증
+
+- [ ] 로그인 직후 대시보드 통계가 실제 값으로 로딩되는지 확인
+- [ ] `/api/courses`를 먼저 호출하지 않아도 `/api/courses/stats`가 정상 동작하는지 확인
+- [ ] LMS 로딩 실패 시 UI 오류 표시 확인
+- [ ] `uv run pytest` 통과
+- [ ] `uv run ruff check .` 통과
+
+---
+
+## 3. P0 — 보안/접근 제어 보강
+
+현재 일부 관리 API가 로그인 없이 접근 가능합니다.
+
+### 3.1 Settings API 보호
+
+- [ ] `GET /api/settings`에 인증 체크 추가
+- [ ] `PUT /api/settings`에 인증 체크 추가
+- [ ] 인증 실패 시 401 반환
+- [ ] 민감값은 계속 GET 응답에서 제외
+- [ ] API key/token placeholder 정책 정리
+  - 저장된 값은 표시하지 않음
+  - 변경 시에만 새 값 입력
+  - 빈 값 전송 시 기존 민감값 유지 여부 명확화
+
+### 3.2 Player API 보호
+
+- [ ] `POST /api/player/stop`에 인증 체크 추가
+- [ ] `GET /api/player/status`의 공개 여부 결정
+  - 로컬 단일 사용자 서비스라면 공개 가능
+  - 외부 노출 가능성이 있으면 인증 요구
+- [ ] `POST /api/player/play`는 현재 인증 체크 유지
+
+### 3.3 CORS 정책 정리
+
+- [ ] `allow_origins=["*"]` 제거 여부 검토
+- [ ] 개발/운영 환경별 허용 origin 분리
+- [ ] Docker Compose 기본 frontend origin만 허용하도록 설정 검토
+
+### 3.4 검증
+
+- [ ] 비로그인 상태에서 settings API 접근 시 401 확인
+- [ ] 로그인 상태에서 settings API 정상 동작 확인
+- [ ] 비로그인 상태에서 player stop 차단 확인
+- [ ] 프론트 설정 화면 정상 저장 확인
+- [ ] `uv run pytest` 통과
+- [ ] `uv run ruff check .` 통과
+
+---
+
+## 4. P1 — 프론트 XSS/HTML Injection 위험 제거
+
+현재 LMS에서 가져온 과목명/강의명/주차명이 `innerHTML` 템플릿에 직접 삽입됩니다.
+
+### 4.1 과목 카드 렌더링 개선
+
+- [ ] `renderCourseCards()`에서 `innerHTML` 직접 삽입 제거 또는 escape 적용
+- [ ] 과목명 `course.name`을 `textContent`로 삽입
+- [ ] 학기명 `course.term`을 `textContent`로 삽입
+- [ ] 숫자 값은 숫자로 검증 후 렌더링
+
+### 4.2 강의 상세 렌더링 개선
+
+- [ ] `loadCourseDetail()`의 week/lecture 렌더링에서 `innerHTML` 직접 삽입 제거 또는 escape 적용
+- [ ] `week.title`을 `textContent`로 삽입
+- [ ] `lec.title`을 `textContent`로 삽입
+- [ ] `lec.duration`을 `textContent`로 삽입
+- [ ] `data-*` 속성은 문자열 template이 아니라 `element.dataset`으로 할당
+
+### 4.3 검증
+
+- [ ] 특수문자 포함 과목명 렌더링 확인
+- [ ] HTML 태그처럼 보이는 강의명 렌더링 확인
+- [ ] 재생 버튼 dataset 값 정상 전달 확인
+- [ ] 브라우저 콘솔 오류 없음 확인
+
+---
+
+## 5. P1 — 다운로드 기능 웹 연결
+
+기존 엔진은 `src/ui/download.py`, `src/downloader/video_downloader.py`, `src/converter/audio_converter.py`에 있으나 웹 API/UI가 없습니다.
+
+### 5.1 백엔드 다운로드 API 설계
+
+- [ ] 긴 작업 처리를 위한 task 모델 설계
+  - 예: `TaskState`, `TaskProgress`, `TaskResult`
+- [ ] `POST /api/tasks/download` 또는 `POST /api/lectures/download` 추가
+- [ ] `GET /api/tasks/{task_id}` 상태 조회 API 추가
+- [ ] `POST /api/tasks/{task_id}/cancel` 취소 API 추가 검토
+- [ ] 다운로드 진행률 저장
+  - downloaded bytes
+  - total bytes
+  - percent
+  - current step
+  - error
+- [ ] 동시에 여러 다운로드 허용 여부 결정
+
+### 5.2 기존 다운로드 엔진 재사용
+
+- [ ] `src/ui/download.py`의 Rich UI 의존 로직과 순수 pipeline 로직 분리
+- [ ] `extract_video_url()` 웹 API 경로에서 재사용
+- [ ] `download_video_with_browser()` 웹 API 경로에서 재사용
+- [ ] 다운로드 실패 시 로그 저장
+- [ ] learningx 다운로드 미지원 케이스를 웹 UI에 표시
+
+### 5.3 프론트 다운로드 UI
+
+- [ ] 강의 row에 다운로드 버튼 추가
+- [ ] 다운로드 진행률 UI 추가
+- [ ] 다운로드 완료 파일 경로 표시
+- [ ] 다운로드 실패 메시지 표시
+- [ ] 다운로드 중 중복 클릭 방지
+- [ ] 다운로드 설정(`DOWNLOAD_RULE`, `DOWNLOAD_DIR`)과 UI 동작 연결
+
+### 5.4 검증
+
+- [ ] 영상만 다운로드 확인
+- [ ] 음성만 다운로드 확인
+- [ ] 영상+음성 다운로드 확인
+- [ ] URL 추출 실패 케이스 UI 표시 확인
+- [ ] 다운로드 중 브라우저/페이지 상태 충돌 여부 확인
+- [ ] `uv run pytest` 통과
+- [ ] `uv run ruff check .` 통과
+
+---
+
+## 6. P1 — STT 기능 웹 연결
+
+기존 엔진은 `src/stt/transcriber.py`에 있으나 웹 API/UI가 없습니다.
+
+### 6.1 백엔드 STT API/Task
+
+- [ ] 다운로드 task 이후 STT step으로 연결
+- [ ] 단독 STT 실행 API 필요 여부 결정
+- [ ] STT 진행 상태 표시 방식 결정
+  - faster-whisper segment 기반 progress 가능 여부 검토
+  - 최소 current step 표시
+- [ ] Whisper 모델 로딩 상태 표시
+- [ ] STT 결과 `.txt` 파일 경로 저장
+
+### 6.2 프론트 STT UI
+
+- [ ] 강의별 STT 실행 상태 표시
+- [ ] STT 변환 중/완료/실패 표시
+- [ ] STT 결과 텍스트 보기 기능 추가 여부 결정
+- [ ] STT 설정이 꺼져 있을 때 안내 표시
+
+### 6.3 검증
+
+- [ ] `STT_ENABLED=true`에서 STT 실행 확인
+- [ ] `STT_ENABLED=false`에서 STT skip 확인
+- [ ] `WHISPER_MODEL` 설정 반영 확인
+- [ ] `STT_LANGUAGE` 설정 반영 확인
+- [ ] STT 실패 시 다음 step 처리 정책 확인
+
+---
+
+## 7. P1 — AI 요약 기능 웹 연결
+
+기존 엔진은 `src/summarizer/summarizer.py`에 있으나 웹 API/UI가 없습니다.
+
+### 7.1 백엔드 요약 API/Task
+
+- [ ] STT 결과 `.txt`를 입력으로 요약 step 연결
+- [ ] 단독 요약 실행 API 필요 여부 결정
+- [ ] 요약 진행 상태 표시
+- [ ] 요약 결과 파일 저장 경로 정책 정리
+- [ ] Gemini/OpenAI 오류 메시지 정규화
+- [ ] API key 미설정 시 사용자 친화적 오류 반환
+
+### 7.2 OpenAI 설정 정리
+
+- [ ] `OPENAI_MODEL` 설정 추가 여부 결정
+- [ ] 웹 설정에 OpenAI 모델 입력 추가
+- [ ] Gemini/OpenAI 선택에 따라 모델 필드 분리
+- [ ] `src/ui/download.py`의 OpenAI 모델 fallback 버그 수정
+  - 현재 OpenAI 선택 시 Gemini 기본 모델이 전달될 위험 있음
+- [ ] 아직 OpenAI를 웹에서 지원하지 않을 경우 OpenAI 옵션 숨김 처리
+
+### 7.3 추가 요약 지시사항 UI
+
+- [ ] 웹 설정 폼에 `SUMMARY_PROMPT_EXTRA` textarea 추가
+- [ ] 기존 값 표시/수정/비우기 정책 결정
+- [ ] 백엔드 `GET /api/settings`와 `PUT /api/settings` 연결 확인
+
+### 7.4 프론트 요약 UI
+
+- [ ] 강의별 요약 실행 버튼 추가
+- [ ] 요약 중/완료/실패 상태 표시
+- [ ] 요약 결과 보기 버튼 추가
+- [ ] 요약 결과가 없을 때 생성 유도 표시
+
+### 7.5 검증
+
+- [ ] Gemini 요약 성공 확인
+- [ ] API key 없음 케이스 확인
+- [ ] 잘못된 API key 케이스 확인
+- [ ] OpenAI를 지원하는 경우 OpenAI 요약 성공 확인
+- [ ] 추가 프롬프트 반영 확인
+- [ ] `uv run pytest` 통과
+- [ ] `uv run ruff check .` 통과
+
+---
+
+## 8. P1 — 요약/마크다운 대시보드 구현
+
+README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_summarized.txt` 파일을 생성합니다.
+
+### 8.1 저장 포맷/경로 정책
+
+- [ ] 요약 결과를 `.txt`로 유지할지 `.md`로 전환할지 결정
+- [ ] README의 “마크다운” 표현과 실제 구현 일치시키기
+- [ ] 저장 경로 구조 결정
+  - 예: `/data/summaries/{term}/{course}/{week}/{lecture}.md`
+- [ ] 기존 다운로드 폴더 내 `_summarized.txt`와 새 summaries 폴더 간 마이그레이션 필요 여부 검토
+- [ ] 파일명 sanitize 정책 재사용
+
+### 8.2 요약 조회 API
+
+- [ ] `GET /api/summaries` 목록 API 추가
+- [ ] `GET /api/summaries/{summary_id}` 상세 API 추가
+- [ ] 과목/주차/강의별 요약 조회 지원
+- [ ] 요약 파일 삭제 API 필요 여부 결정
+- [ ] 없는 요약 파일에 대한 404 처리
+
+### 8.3 프론트 요약 대시보드
+
+- [ ] 요약 목록/상세 페이지 추가
+- [ ] Markdown 렌더링 라이브러리 사용 여부 결정
+  - CDN 사용 여부 검토
+  - sanitization 필수
+- [ ] 학기/과목/주차 계층 탐색 UI 추가
+- [ ] 강의 상세 패널에서 요약 보기 연결
+
+### 8.4 검증
+
+- [ ] 요약 파일 생성 후 웹에서 조회 확인
+- [ ] Markdown 렌더링 확인
+- [ ] HTML/script injection 방어 확인
+- [ ] 파일 없음 케이스 UI 확인
+
+---
+
+## 9. P1 — 자동 모드 웹 구현
+
+기존 자동 모드는 `src/ui/auto.py`에 CUI 중심으로 존재합니다.
+
+### 9.1 자동 모드 백엔드 설계
+
+- [ ] CUI `run_auto_mode()`와 웹 자동모드 로직 분리
+- [ ] 자동 모드 상태 모델 설계
+  - enabled
+  - current_step
+  - current_course
+  - current_lecture
+  - next_run_at
+  - schedule_hours
+  - processed_count
+  - error
+- [ ] `GET /api/auto/status` 추가
+- [ ] `POST /api/auto/start` 추가
+- [ ] `POST /api/auto/stop` 추가
+- [ ] `PUT /api/auto/schedule` 추가
+- [ ] 서버 재시작 시 자동 모드 상태 복원 여부 결정
+
+### 9.2 자동 모드 pipeline 연결
+
+- [ ] 미시청 강의 수집
+- [ ] 재생 step 연결
+- [ ] 다운로드 step 연결
+- [ ] STT step 연결
+- [ ] 요약 step 연결
+- [ ] 텔레그램 전송 step 연결
+- [ ] step별 실패 정책 결정
+  - 중단
+  - 다음 강의로 계속
+  - retry
+
+### 9.3 프론트 자동 모드 UI
+
+- [ ] 대시보드에 자동 모드 ON/OFF 토글 추가
+- [ ] 현재 파이프라인 단계 표시
+  - 재생 중
+  - 다운로드 중
+  - STT 변환 중
+  - 요약 중
+  - 텔레그램 전송 중
+- [ ] 다음 실행 스케줄 표시
+- [ ] 처리 대상 강의 수 표시
+- [ ] 최근 자동 처리 결과/오류 표시
+- [ ] 스케줄 설정 UI 추가
+
+### 9.4 검증
+
+- [ ] 자동 모드 ON 동작 확인
+- [ ] 자동 모드 OFF 동작 확인
+- [ ] 스케줄 계산 확인
+- [ ] 미시청 강의 없을 때 동작 확인
+- [ ] 중간 step 실패 시 정책대로 동작 확인
+- [ ] 서버 재시작/로그아웃 시 상태 처리 확인
+
+---
+
+## 10. P2 — 학기 선택 기능 구현
+
+현재 scraper는 가장 많이 등장하는 term을 현재 학기로 간주해 자동 필터링합니다.
+
+### 10.1 scraper/API 개선
+
+- [ ] 전체 학기 목록을 반환할 수 있도록 `fetch_courses()` 구조 확장
+- [ ] 자동 현재 학기 필터링을 옵션화
+- [ ] `GET /api/terms` 또는 `/api/courses?term=...` API 추가
+- [ ] 즐겨찾기/비교과/이전 학기 필터 정책 정리
+
+### 10.2 프론트 학기 선택 UI
+
+- [ ] 강의 목록 상단에 학기 선택 dropdown 추가
+- [ ] 선택한 학기에 따라 과목 목록 refresh
+- [ ] 대시보드 통계도 선택 학기 기준으로 반영할지 결정
+- [ ] 요약 대시보드도 학기 기준 탐색 지원
+
+### 10.3 검증
+
+- [ ] 현재 학기 과목 조회 확인
+- [ ] 이전 학기 과목 조회 확인
+- [ ] 학기 전환 시 cache/state 정상 갱신 확인
+
+---
+
+## 11. P2 — 텔레그램 웹 기능 완성
+
+### 11.1 텔레그램 설정 UX
+
+- [ ] 웹에서 텔레그램 연결 테스트 버튼 추가
+- [ ] `POST /api/settings/telegram/test` 또는 별도 API 추가
+- [ ] 테스트 성공/실패 메시지 표시
+- [ ] Bot Token 저장 여부/변경 여부 명확히 표시
+
+### 11.2 텔레그램 전송 기능
+
+- [ ] 요약 완료 후 텔레그램 전송 step 연결
+- [ ] 수동 “요약 텔레그램 전송” 버튼 추가 여부 결정
+- [ ] 전송 실패 시 UI 표시
+- [ ] `TELEGRAM_AUTO_DELETE` 동작을 웹 task에서도 적용
+
+### 11.3 마감 임박 알림
+
+- [ ] 웹에서 마감 임박 알림 수동 체크 API 추가 여부 결정
+- [ ] 자동 모드 실행 시 마감 임박 알림 포함
+- [ ] 이미 알림 보낸 항목 dedupe 상태 확인
+
+### 11.4 검증
+
+- [ ] 텔레그램 연결 테스트 성공 확인
+- [ ] 잘못된 token/chat id 실패 확인
+- [ ] 요약 파일 전송 확인
+- [ ] 자동 삭제 옵션 확인
+
+---
+
+## 12. P2 — 작업 상태/Background Task 공통화
+
+다운로드/STT/요약/자동모드는 모두 긴 작업이므로 공통 task 시스템이 필요합니다.
+
+### 12.1 Task 모델
+
+- [ ] task id 생성 방식 결정
+- [ ] task 상태 enum 정의
+  - queued
+  - running
+  - succeeded
+  - failed
+  - cancelled
+- [ ] task step enum 정의
+  - play
+  - download
+  - convert
+  - stt
+  - summary
+  - telegram
+- [ ] task progress 구조 정의
+- [ ] task result 구조 정의
+- [ ] task error 구조 정의
+
+### 12.2 Task 저장소
+
+- [ ] 메모리 저장으로 충분한지 결정
+- [ ] SQLite 저장 필요 여부 검토
+- [ ] 서버 재시작 후 task 복원 여부 결정
+- [ ] 오래된 task 정리 정책 추가
+
+### 12.3 Task API
+
+- [ ] `GET /api/tasks` 목록 API
+- [ ] `GET /api/tasks/{task_id}` 상세 API
+- [ ] `POST /api/tasks/{task_id}/cancel` 취소 API
+- [ ] WebSocket/SSE 사용 여부 결정
+  - 현재는 polling으로 시작 가능
+
+### 12.4 검증
+
+- [ ] 긴 작업 상태 polling 확인
+- [ ] 실패 task 상태 확인
+- [ ] 취소 task 상태 확인
+- [ ] 여러 task 동시 실행 정책 확인
+
+---
+
+## 13. P2 — 프론트 구조 정리
+
+현재 프론트는 단일 `index.html` + vanilla JS입니다. README의 React/TypeScript/Vite 설명과 불일치합니다.
+
+### 13.1 방향 결정
+
+- [ ] 현재 vanilla HTML 구조를 유지할지 결정
+- [ ] React/TypeScript/Vite로 전환할지 결정
+- [ ] README의 기술 스택 설명을 실제 구현에 맞게 수정
+
+### 13.2 vanilla 유지 시
+
+- [ ] JS를 모듈별 파일로 분리
+  - api.js
+  - auth.js
+  - player.js
+  - courses.js
+  - settings.js
+  - tasks.js
+- [ ] 공통 렌더링 유틸 추가
+- [ ] escape/sanitize 유틸 추가
+- [ ] 상태 관리 최소 규칙 정리
+
+### 13.3 React 전환 시
+
+- [ ] Vite 프로젝트 scaffold
+- [ ] API client 작성
+- [ ] 페이지/컴포넌트 분리
+- [ ] Tailwind 빌드 체인 구성
+- [ ] nginx build output 서빙으로 Dockerfile 변경
+
+### 13.4 검증
+
+- [ ] Docker Compose에서 frontend 정상 서빙 확인
+- [ ] API proxy 정상 확인
+- [ ] 브라우저 console error 없음 확인
+
+---
+
+## 14. P2 — 문서/README 정합성 정리
+
+### 14.1 README 현재 구현 반영
+
+- [ ] 현재 프론트가 React/Vite가 아니라 단일 정적 HTML임을 반영하거나 실제 React로 전환
+- [ ] 자동 모드가 웹 미구현임을 명시하거나 구현 후 유지
+- [ ] 다운로드/STT/요약이 웹 미구현임을 명시하거나 구현 후 유지
+- [ ] 마크다운 저장/렌더링 실제 포맷과 일치하도록 수정
+- [ ] 프로젝트 구조 예시를 실제 구조에 맞게 수정
+
+### 14.2 개발 문서 추가
+
+- [ ] 웹 API 명세 문서 추가
+- [ ] task pipeline 설계 문서 추가
+- [ ] LMS 재생 전략 문서와 웹 route 연결 방식 정리
+- [ ] 보안 주의사항 업데이트
+
+---
+
+## 15. P3 — 운영/다중 사용자/확장성 검토
+
+현재 구조는 개인 단일 사용자 서비스에 가깝습니다.
+
+### 15.1 전역 singleton 상태 한계 정리
+
+- [ ] `backend/api/state.py`의 `app_state` 단일 세션 구조 문서화
+- [ ] uvicorn workers > 1 사용 금지 또는 상태 공유 구조 도입
+- [ ] 여러 브라우저/사용자 동시 로그인 정책 결정
+- [ ] 로그인 세션 충돌 처리
+
+### 15.2 서버 재시작 처리
+
+- [ ] 서버 재시작 시 Playwright 세션 복구 여부 결정
+- [ ] 저장된 credential로 자동 로그인할지 결정
+- [ ] 자동 모드 실행 중 재시작 시 상태 처리
+
+### 15.3 Docker/배포
+
+- [ ] 프로덕션 `--reload` 제거
+- [ ] worker 수 정책 결정
+- [ ] persistent volume 정책 정리
+- [ ] `.secret_key`, `data`, `logs` mount 정책 문서화
+
+---
+
+## 16. 코드 품질/CI 체크리스트
+
+현재 `uv run pytest`는 통과하지만 `uv run ruff check .`는 실패합니다.
+
+### 16.1 Ruff 정리
+
+- [ ] backend import sorting 수정
+- [ ] `backend/api/routes/auth.py`의 `raise HTTPException(...)`에 `from None` 또는 `from e` 추가
+- [ ] `backend/api/routes/settings.py`의 `Optional[str]`를 `str | None`로 변경
+- [ ] `backend/api/state.py`의 `Optional[...]`를 `... | None`로 변경
+- [ ] `tests/test_config.py` unused `tempfile` 제거
+- [ ] `uv run ruff check .` 통과
+
+### 16.2 테스트 보강
+
+- [ ] FastAPI smoke test 추가
+- [ ] 인증 없는 settings 접근 차단 테스트 추가
+- [ ] `/api/courses/stats` lazy loading 테스트 추가
+- [ ] player status error 표시 테스트 추가
+- [ ] settings 민감값 미노출 테스트 추가
+- [ ] task API 도입 시 task 상태 전이 테스트 추가
+
+---
+
+## 17. 완료 정의
+
+웹서비스가 README의 설명과 일치한다고 보기 위한 최소 완료 조건입니다.
+
+- [ ] 로그인 후 대시보드에서 실제 강의 통계가 자동 표시된다.
+- [ ] 과목/주차/강의 목록을 웹에서 탐색할 수 있다.
+- [ ] 웹에서 강의를 재생할 수 있고 성공/실패/중지 상태가 명확히 표시된다.
+- [ ] 재생 완료 후 미수강/완료 상태와 통계가 갱신된다.
+- [ ] 웹에서 강의 다운로드를 실행하고 진행률을 볼 수 있다.
+- [ ] 웹에서 STT 변환을 실행하거나 파이프라인으로 자동 실행된다.
+- [ ] 웹에서 AI 요약을 실행하거나 파이프라인으로 자동 실행된다.
+- [ ] 생성된 요약을 웹에서 과목/주차별로 열람할 수 있다.
+- [ ] 자동 모드를 웹에서 켜고 끌 수 있다.
+- [ ] 자동 모드의 현재 단계와 다음 스케줄을 웹에서 볼 수 있다.
+- [ ] 텔레그램 설정/테스트/요약 전송이 웹 흐름과 연결된다.
+- [ ] Settings API 등 관리 API가 인증 없이 변경되지 않는다.
+- [ ] 프론트가 외부 문자열을 안전하게 렌더링한다.
+- [ ] `uv run pytest`가 통과한다.
+- [ ] `uv run ruff check .`가 통과한다.
+- [ ] README가 실제 구현과 일치한다.
