@@ -69,10 +69,10 @@
   <!-- ══════════════════════════════════════════════════════════
        앱 셸 (로그인 후)
   ══════════════════════════════════════════════════════════ -->
-  <div id="app-shell" class="hidden min-h-screen flex">
+  <div id="app-shell" class="hidden h-screen flex overflow-hidden">
 
     <!-- 사이드바 -->
-    <aside class="w-64 shrink-0 bg-[#1E293B] border-r border-slate-800 flex flex-col">
+    <aside class="w-64 shrink-0 bg-[#1E293B] border-r border-slate-800 flex flex-col overflow-y-auto">
       <!-- 로고 -->
       <div class="h-20 px-6 flex items-center gap-3 border-b border-slate-800">
         <div class="w-9 h-9 bg-indigo-500 rounded-xl flex items-center justify-center">
@@ -702,6 +702,16 @@
     async function loadStats() {
       try {
         const s = await api('GET', '/api/courses/stats');
+        // 백엔드 details가 비어있으면(total=0) 아직 강의 목록이 로드되지 않은 것
+        if (s.total_videos === 0 && state.courses.length === 0) {
+          const courses = await api('GET', '/api/courses');
+          state.courses = courses;
+          const s2 = await api('GET', '/api/courses/stats');
+          $('#stat-completed').textContent = s2.completed_videos;
+          $('#stat-total').textContent = s2.total_videos;
+          $('#stat-pending').textContent = s2.total_videos - s2.completed_videos;
+          return;
+        }
         $('#stat-completed').textContent = s.completed_videos;
         $('#stat-total').textContent = s.total_videos;
         $('#stat-pending').textContent = s.total_videos - s.completed_videos;
