@@ -22,6 +22,25 @@ async def _close_scraper(scraper) -> None:
         await asyncio.wait_for(scraper.close(), timeout=_CLOSE_TIMEOUT_SECONDS)
 
 
+def _consume_task_exception(task: asyncio.Task) -> None:
+    """Background task 예외를 회수해 'never retrieved' 경고를 방지한다."""
+    with suppress(asyncio.CancelledError, Exception):
+        task.result()
+
+
+async def _start_scraper_with_timeout(scraper) -> None:
+    """로그인 시작을 timeout으로 감싸되, 취소 완료를 기다리느라 응답을 지연하지 않는다."""
+    task = asyncio.create_task(scraper.start())
+    done, pending = await asyncio.wait({task}, timeout=_LOGIN_TIMEOUT_SECONDS)
+    if pending:
+        task.cancel()
+        task.add_done_callback(_consume_task_exception)
+        cleanup_task = asyncio.create_task(_close_scraper(scraper))
+        cleanup_task.add_done_callback(_consume_task_exception)
+        raise TimeoutError
+    await next(iter(done))
+
+
 @router.post("/login")
 async def login(req: LoginRequest):
     from src.scraper.course_scraper import CourseScraper
@@ -32,7 +51,7 @@ async def login(req: LoginRequest):
 
     scraper = CourseScraper(username=req.user_id, password=req.password)
     try:
-        await asyncio.wait_for(scraper.start(), timeout=_LOGIN_TIMEOUT_SECONDS)
+        await _start_scraper_with_timeout(scraper)
     except TimeoutError:
         await _close_scraper(scraper)
         raise HTTPException(

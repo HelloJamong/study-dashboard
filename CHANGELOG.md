@@ -21,12 +21,14 @@
   - 재생 오류가 status/error/log_path에 유지되는지 검증
 - **로그인 실패/지연 처리 보강** (`backend/api/routes/auth.py`, `frontend/index.html`)
   - 백엔드 로그인 시도에 45초 제한을 적용해 Playwright 로그인 대기가 무한히 이어지지 않도록 함
+  - cancellation에 즉시 응답하지 않는 Playwright 작업도 timeout 시 사용자 응답을 막지 않도록 처리
   - 프론트 로그인 요청에 60초 timeout을 적용하고 실패/timeout 메시지를 로그인 카드에 표시
   - 학번/비밀번호 미입력 시 즉시 경고 메시지 표시
 - **로컬 HTTPS 지원** (`frontend/nginx.conf`, `docker-compose.yml`)
   - nginx가 443/TLS를 직접 처리하고 `http://localhost:3000`을 `https://localhost:3443`으로 리다이렉트
   - backend 포트 `8000`은 로컬 호스트에만 바인딩해 브라우저 트래픽은 nginx HTTPS 프록시를 거치도록 조정
   - 최소 보안 헤더(HSTS, nosniff, SAMEORIGIN, Referrer-Policy) 추가
+  - stale inline JS 캐시 방지를 위해 정적 응답에 `Cache-Control: no-store` 적용
 - **로컬 인증서 생성 도구/문서**
   - `scripts/generate-local-cert.sh`: self-signed localhost 인증서 생성
   - `docs/https-local.md`: HTTPS 실행 및 인증서 신뢰 안내
@@ -43,7 +45,7 @@
 - 로컬 HTTPS 인증서 실파일(`certs/local.crt`, `certs/local.key`)을 git 대상에서 제외
 
 #### 검증
-- `uv run pytest` — 38 passed
+- `uv run pytest` — 39 passed
 - `uv run ruff check .` — All checks passed
 - FastAPI smoke 확인
   - `GET /api/health` → 200
