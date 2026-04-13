@@ -457,6 +457,11 @@
     // ═══════════════════════════════════════════════════════════════
     const $ = (sel, el = document) => el.querySelector(sel);
     const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+    function esc(str) {
+      const d = document.createElement('div');
+      d.textContent = str ?? '';
+      return d.innerHTML;
+    }
 
     function fmtTime(sec) {
       const s = Math.max(0, Math.floor(sec));
@@ -732,7 +737,7 @@
         state.courses = await api('GET', '/api/courses');
         renderCourseCards(state.courses);
       } catch (err) {
-        list.innerHTML = `<p class="text-red-400 text-sm">${err.message}</p>`;
+        list.innerHTML = `<p class="text-red-400 text-sm">${esc(err.message)}</p>`;
       } finally {
         loading.classList.add('hidden');
         loading.classList.remove('flex');
@@ -758,8 +763,8 @@
         card.innerHTML = `
           <div class="flex items-start justify-between gap-4">
             <div class="flex-1 min-w-0">
-              <h3 class="font-semibold text-white truncate">${course.name}</h3>
-              <p class="text-xs text-slate-500 mt-0.5">${course.term}</p>
+              <h3 class="font-semibold text-white truncate">${esc(course.name)}</h3>
+              <p class="text-xs text-slate-500 mt-0.5">${esc(course.term)}</p>
             </div>
             <div class="shrink-0 text-right">
               <span class="text-lg font-black ${pending > 0 ? 'text-amber-400' : 'text-emerald-400'}">${pending}</span>
@@ -806,27 +811,37 @@
           section.className = 'px-6 py-4';
           section.innerHTML = `
             <div class="flex items-center justify-between mb-3">
-              <h4 class="text-sm font-bold text-slate-300">${week.title}</h4>
+              <h4 class="text-sm font-bold text-slate-300">${esc(week.title)}</h4>
               ${week.pending_count > 0 ? `<span class="text-xs px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">${week.pending_count} 미수강</span>` : ''}
             </div>
-            <div class="flex flex-col gap-2">
-              ${videos.map(lec => `
-                <div class="lecture-row flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer" data-url="${lec.full_url}" data-title="${lec.title}" data-week="${lec.week_label}" data-course="${courseId}">
-                  <div class="w-7 h-7 rounded-lg ${lec.completion === 'completed' ? 'bg-emerald-500/10' : 'bg-slate-800'} flex items-center justify-center shrink-0">
-                    <i class="fa-solid ${lec.completion === 'completed' ? 'fa-circle-check text-emerald-400' : 'fa-play text-slate-500'} text-xs"></i>
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm text-slate-200 truncate">${lec.title}</p>
-                    ${lec.duration ? `<p class="text-xs text-slate-500">${lec.duration}</p>` : ''}
-                  </div>
-                  <span class="completion-badge ${lec.completion} shrink-0 text-xs px-2 py-0.5 border rounded-full font-medium">
-                    ${lec.completion === 'completed' ? '완료' : '미수강'}
-                  </span>
-                  ${lec.needs_watch ? `<button class="btn-play-lec shrink-0 px-3 py-1 bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-bold rounded-lg transition-all">재생</button>` : ''}
-                </div>
-              `).join('')}
-            </div>
+            <div class="flex flex-col gap-2" data-week-rows></div>
           `;
+          const rowContainer = section.querySelector('[data-week-rows]');
+          videos.forEach(lec => {
+            const comp = lec.completion === 'completed' ? 'completed' : 'incomplete';
+            const row = document.createElement('div');
+            row.className = 'lecture-row flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer';
+            row.dataset.url = lec.full_url;
+            row.dataset.title = lec.title;
+            row.dataset.week = lec.week_label;
+            row.dataset.course = courseId;
+            row.innerHTML = `
+              <div class="w-7 h-7 rounded-lg ${comp === 'completed' ? 'bg-emerald-500/10' : 'bg-slate-800'} flex items-center justify-center shrink-0">
+                <i class="fa-solid ${comp === 'completed' ? 'fa-circle-check text-emerald-400' : 'fa-play text-slate-500'} text-xs"></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm text-slate-200 truncate"></p>
+                ${lec.duration ? `<p class="text-xs text-slate-500"></p>` : ''}
+              </div>
+              <span class="completion-badge ${comp} shrink-0 text-xs px-2 py-0.5 border rounded-full font-medium">
+                ${comp === 'completed' ? '완료' : '미수강'}
+              </span>
+              ${lec.needs_watch ? `<button class="btn-play-lec shrink-0 px-3 py-1 bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-bold rounded-lg transition-all">재생</button>` : ''}
+            `;
+            row.querySelector('.flex-1 p:first-child').textContent = lec.title;
+            if (lec.duration) row.querySelector('.flex-1 p:last-child').textContent = lec.duration;
+            rowContainer.appendChild(row);
+          });
           weeks.appendChild(section);
         });
 
@@ -840,7 +855,7 @@
         });
 
       } catch (err) {
-        weeks.innerHTML = `<div class="p-6 text-red-400 text-sm">${err.message}</div>`;
+        weeks.innerHTML = `<div class="p-6 text-red-400 text-sm">${esc(err.message)}</div>`;
       }
     }
 

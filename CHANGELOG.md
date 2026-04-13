@@ -1,5 +1,24 @@
 # Changelog
 
+## [v26.04.06] - 2026-04-14
+
+### 프론트 XSS/HTML Injection 방어
+
+#### 수정
+- **`esc()` 헬퍼 추가** (`frontend/index.html`)
+  - `document.createElement('div').textContent` 기반 HTML 이스케이프 유틸
+  - `&`, `<`, `>`, `"`, `'` 등 모든 특수문자를 안전하게 변환
+- **`renderCourseCards()` 보호**
+  - `course.name`, `course.term` → `esc()` 적용
+  - 숫자 값(`pending`, `total`, `pct`)은 연산 결과이므로 현행 유지
+- **`loadCourseDetail()` 주차/강의 렌더링 보호**
+  - `week.title` → `esc()` 적용
+  - 강의 row의 `data-url`, `data-title`, `data-week`, `data-course` → `innerHTML` 템플릿 문자열 대신 `element.dataset` 직접 할당
+  - `lec.title`, `lec.duration` → `element.textContent` 직접 할당 (innerHTML 우회)
+  - `lec.completion` → `'completed'` / `'incomplete'` 두 값만 허용하도록 화이트리스트 검증
+- **오류 메시지 보호**
+  - 강의 목록/상세 오류 div의 `err.message` → `esc()` 적용
+
 ## [v26.04.05] - 2026-04-14
 
 ### 보안 접근 제어 보강
