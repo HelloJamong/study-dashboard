@@ -1,5 +1,49 @@
 # Changelog
 
+## [v26.04.03] - 2026-04-03
+
+### 웹 재생 안정성 및 피드백 보강
+
+#### 추가
+- **웹 재생 상태 확장** (`backend/api/state.py`)
+  - `PlaybackProgress.status`: `idle` / `playing` / `completed` / `error` / `stopped` 상태 구분
+  - `PlaybackProgress.log_path`: 웹 재생 실패 시 저장된 진단 로그 경로 노출
+- **웹 재생 결과 처리 강화** (`backend/api/routes/player.py`)
+  - `play_lecture()` 반환값을 검사해 완료/오류/중지 상태를 명확히 반영
+  - 재생 실패 시 `logs/*_web_play.log` 진단 로그 저장
+  - 재생 완료 시 캐시된 강의 항목의 `completion`을 즉시 `completed`로 갱신
+- **대시보드 재생 피드백 UI** (`frontend/index.html`)
+  - 재생 완료/중지/실패 메시지 표시
+  - 실패 시 `/api/player/status`의 `error`와 `log_path` 표시
+  - 재생 완료 감지 후 통계와 강의 목록 캐시 자동 갱신
+- **웹 player route 회귀 테스트** (`tests/test_web_player.py`)
+  - 재생 완료 후 강의 completion 갱신 검증
+  - 재생 오류가 status/error/log_path에 유지되는지 검증
+
+#### 변경
+- `POST /api/player/stop`에 로그인 상태 검사를 추가해 비인증 중지 요청을 차단
+- backend/test 코드의 Ruff 지적 사항 정리
+  - import 정렬
+  - `HTTPException` 재발생 원인 명시 (`from None` / `from e`)
+  - `Optional[...]` 타입 표기를 `... | None`으로 변경
+  - 미사용 import 제거
+- `docs/web-completeness-checklist.md`의 완료 항목을 체크 및 취소선으로 표시
+
+#### 검증
+- `uv run pytest` — 36 passed
+- `uv run ruff check .` — All checks passed
+- FastAPI smoke 확인
+  - `GET /api/health` → 200
+  - `GET /api/auth/status` → 200
+  - `GET /api/player/status` → 200
+  - 비로그인 `POST /api/player/stop` → 401
+
+#### 남은 확인
+- 실제 LMS 계정으로 재생 성공/실패/중지 케이스 수동 검증 필요
+- 재생 완료 후 LMS 서버 출석 반영까지 실제 확인 필요
+
+---
+
 ## [v26.04.02] - 2026-04-02
 
 ### 웹 대시보드 (Docker 풀스택 구성)

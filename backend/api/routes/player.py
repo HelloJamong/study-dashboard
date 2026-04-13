@@ -1,9 +1,9 @@
 import asyncio
-
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pathlib import Path
 
 from backend.api.state import PlaybackProgress, app_state
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -15,10 +15,56 @@ class PlayRequest(BaseModel):
     week_label: str = ""
 
 
-@router.post("/play")
-async def start_play(req: PlayRequest):
+def _require_auth() -> None:
     if not app_state.scraper:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+
+
+def _sync_progress(state) -> None:
+    app_state.playback.current = state.current
+    app_state.playback.duration = state.duration
+    app_state.playback.ended = state.ended
+    app_state.playback.error = state.error
+
+
+def _mark_lecture_completed(course_id: str, lecture_url: str) -> bool:
+    """Cached course details에서 완료된 강의를 즉시 반영한다."""
+    course_idx = next((i for i, course in enumerate(app_state.courses) if course.id == course_id), None)
+    if course_idx is None or course_idx >= len(app_state.details):
+        return False
+
+    detail = app_state.details[course_idx]
+    if not detail:
+        return False
+
+    for week in detail.weeks:
+        for lecture in week.lectures:
+            if lecture.full_url == lecture_url or lecture.item_url == lecture_url:
+                lecture.completion = "completed"
+                return True
+    return False
+
+
+def _write_playback_log(title: str, lecture_url: str, error: str, log_buffer: list[str]) -> str | None:
+    """웹 재생 실패 로그를 파일로 남기고 경로를 반환한다."""
+    try:
+        from src.logger import get_error_logger
+
+        logger, log_path = get_error_logger("web_play")
+        logger.info(f"강의: {title}")
+        logger.info(f"URL: {lecture_url}")
+        logger.info(f"오류: {error}")
+        logger.info("--- 재생 로그 ---")
+        for line in log_buffer:
+            logger.info(line)
+        return str(Path(log_path).resolve())
+    except Exception:
+        return None
+
+
+@router.post("/play")
+async def start_play(req: PlayRequest):
+    _require_auth()
     if app_state.is_playing:
         raise HTTPException(status_code=409, detail="이미 재생 중입니다.")
 
@@ -32,26 +78,55 @@ async def start_play(req: PlayRequest):
     app_state.current_lecture_url = req.lecture_url
     app_state.current_week_label = req.week_label
     app_state.current_course_name = course.long_name
-    app_state.playback = PlaybackProgress()
+    app_state.playback = PlaybackProgress(status="playing")
     app_state.is_playing = True
+    log_buffer: list[str] = []
 
     def on_progress(state: PlaybackState):
-        app_state.playback.current = state.current
-        app_state.playback.duration = state.duration
-        app_state.playback.ended = state.ended
-        app_state.playback.error = state.error
+        _sync_progress(state)
+        if not state.error:
+            app_state.playback.status = "playing"
 
     async def run():
         try:
-            await play_lecture(
+            final_state = await play_lecture(
                 app_state.scraper._page,
                 req.lecture_url,
                 on_progress=on_progress,
+                debug=True,
+                log_fn=log_buffer.append,
             )
+            _sync_progress(final_state)
+
+            if final_state.error == "사용자 중단":
+                app_state.playback.status = "stopped"
+                app_state.playback.error = None
+            elif final_state.error:
+                app_state.playback.status = "error"
+                app_state.playback.log_path = _write_playback_log(
+                    req.lecture_title,
+                    req.lecture_url,
+                    final_state.error,
+                    log_buffer,
+                )
+            elif final_state.ended:
+                app_state.playback.status = "completed"
+                _mark_lecture_completed(req.course_id, req.lecture_url)
+            else:
+                app_state.playback.status = "stopped"
         except asyncio.CancelledError:
-            pass
+            app_state.playback.status = "stopped"
+            app_state.playback.error = None
+            raise
         except Exception as e:
+            app_state.playback.status = "error"
             app_state.playback.error = str(e)
+            app_state.playback.log_path = _write_playback_log(
+                req.lecture_title,
+                req.lecture_url,
+                str(e),
+                log_buffer,
+            )
         finally:
             app_state.is_playing = False
 
@@ -63,9 +138,12 @@ async def start_play(req: PlayRequest):
 
 @router.post("/stop")
 async def stop_play():
+    _require_auth()
     if app_state.play_task and not app_state.play_task.done():
         app_state.play_task.cancel()
     app_state.is_playing = False
+    app_state.playback.status = "stopped"
+    app_state.playback.error = None
     return {"stopped": True}
 
 
@@ -82,4 +160,6 @@ async def get_status():
         "progress_pct": pb.progress_pct,
         "ended": pb.ended,
         "error": pb.error,
+        "status": pb.status,
+        "log_path": pb.log_path,
     }

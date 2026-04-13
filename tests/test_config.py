@@ -1,6 +1,5 @@
 """config.py / db.py 단위 테스트."""
 
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 

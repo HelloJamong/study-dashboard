@@ -1,7 +1,6 @@
+from backend.api.state import app_state
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-
-from backend.api.state import app_state
 
 router = APIRouter()
 
@@ -24,10 +23,10 @@ async def login(req: LoginRequest):
         await scraper.start()
     except RuntimeError:
         await scraper.close()
-        raise HTTPException(status_code=401, detail="로그인 실패. 학번/비밀번호를 확인하세요.")
+        raise HTTPException(status_code=401, detail="로그인 실패. 학번/비밀번호를 확인하세요.") from None
     except Exception as e:
         await scraper.close()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     app_state.scraper = scraper
     app_state.user_id = req.user_id

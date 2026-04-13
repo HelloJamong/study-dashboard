@@ -176,6 +176,13 @@
             <p class="text-slate-400 font-medium">현재 재생 중인 강의가 없습니다.</p>
             <p class="text-slate-600 text-sm mt-1">강의 목록에서 재생을 시작하세요.</p>
           </div>
+
+          <!-- 재생 완료/실패 피드백 -->
+          <div id="player-message" class="hidden mt-5 px-4 py-3 rounded-xl border text-sm">
+            <p id="player-message-title" class="font-bold"></p>
+            <p id="player-message-body" class="mt-1"></p>
+            <p id="player-message-log" class="hidden mt-1 text-xs opacity-80"></p>
+          </div>
         </div>
 
         <!-- 통계 카드 -->
@@ -414,6 +421,7 @@
       courses: [],
       pollingTimer: null,
       currentPage: 'dashboard',
+      lastPlayerStatus: '',
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -518,10 +526,18 @@
         const s = await api('GET', '/api/player/status');
         const active = $('#player-active');
         const idle = $('#player-idle');
+        const message = $('#player-message');
+        const messageTitle = $('#player-message-title');
+        const messageBody = $('#player-message-body');
+        const messageLog = $('#player-message-log');
+        const status = s.status || (s.is_playing ? 'playing' : 'idle');
+        const previousStatus = state.lastPlayerStatus;
+        state.lastPlayerStatus = status;
 
         if (s.is_playing) {
           active.classList.remove('hidden');
           idle.classList.add('hidden');
+          message.classList.add('hidden');
           $('#player-course-name').textContent = s.course_name || '';
           $('#player-lecture-title').textContent = s.lecture_title || '';
           $('#player-week').textContent = s.week_label || '';
@@ -532,6 +548,42 @@
           active.classList.add('hidden');
           idle.classList.remove('hidden');
           $('#player-bar').style.width = '0%';
+
+          message.classList.add('hidden');
+          messageTitle.textContent = '';
+          messageBody.textContent = '';
+          messageLog.classList.add('hidden');
+          messageLog.textContent = '';
+
+          if (s.error) {
+            message.className = 'mt-5 px-4 py-3 rounded-xl border text-sm bg-red-500/10 border-red-500/30 text-red-300';
+            messageTitle.textContent = '재생 실패';
+            messageBody.textContent = s.error;
+            if (s.log_path) {
+              messageLog.textContent = `로그 저장: ${s.log_path}`;
+              messageLog.classList.remove('hidden');
+            }
+          } else if (status === 'completed' && s.lecture_title) {
+            message.className = 'mt-5 px-4 py-3 rounded-xl border text-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-300';
+            messageTitle.textContent = '재생 완료';
+            messageBody.textContent = `${s.lecture_title} 강의 재생이 완료되었습니다.`;
+          } else if (status === 'stopped' && s.lecture_title) {
+            message.className = 'mt-5 px-4 py-3 rounded-xl border text-sm bg-amber-500/10 border-amber-500/30 text-amber-300';
+            messageTitle.textContent = '재생 중지됨';
+            messageBody.textContent = `${s.lecture_title} 강의 재생이 중지되었습니다.`;
+          }
+
+          if (!messageTitle.textContent && !messageBody.textContent) {
+            message.classList.add('hidden');
+          } else {
+            message.classList.remove('hidden');
+          }
+        }
+
+        if (previousStatus === 'playing' && status === 'completed') {
+          loadStats();
+          state.courses = [];
+          if (state.currentPage === 'courses') loadCourses();
         }
       } catch {}
     }

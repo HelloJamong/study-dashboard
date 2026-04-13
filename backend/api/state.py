@@ -1,6 +1,5 @@
 import asyncio
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -8,7 +7,9 @@ class PlaybackProgress:
     current: float = 0.0
     duration: float = 0.0
     ended: bool = False
-    error: Optional[str] = None
+    error: str | None = None
+    status: str = "idle"
+    log_path: str | None = None
 
     @property
     def progress_pct(self) -> float:
@@ -29,7 +30,7 @@ class AppState:
     current_week_label: str = ""
     current_course_name: str = ""
     playback: PlaybackProgress = field(default_factory=PlaybackProgress)
-    play_task: Optional[asyncio.Task] = None
+    play_task: asyncio.Task | None = None
 
 
 app_state = AppState()

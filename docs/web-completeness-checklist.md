@@ -21,25 +21,25 @@
 
 ## 0. 현재 구현된 웹 기능 기준선
 
-- [x] 로그인 화면 구현
+- [x] ~~로그인 화면 구현~~
   - 관련 파일: `frontend/index.html`, `backend/api/routes/auth.py`
-- [x] 로그아웃 구현
+- [x] ~~로그아웃 구현~~
   - 관련 API: `POST /api/auth/logout`
-- [x] 인증 상태 확인 구현
+- [x] ~~인증 상태 확인 구현~~
   - 관련 API: `GET /api/auth/status`
-- [x] 과목 목록 조회 구현
+- [x] ~~과목 목록 조회 구현~~
   - 관련 API: `GET /api/courses`
-- [x] 과목 상세/주차별 강의 목록 조회 구현
+- [x] ~~과목 상세/주차별 강의 목록 조회 구현~~
   - 관련 API: `GET /api/courses/{course_id}`
-- [x] 강의 백그라운드 재생 시작 구현
+- [x] ~~강의 백그라운드 재생 시작 구현~~
   - 관련 API: `POST /api/player/play`
-- [x] 강의 재생 중지 구현
+- [x] ~~강의 재생 중지 구현~~
   - 관련 API: `POST /api/player/stop`
-- [x] 재생 상태 polling 구현
+- [x] ~~재생 상태 polling 구현~~
   - 관련 API: `GET /api/player/status`
-- [x] 기본 설정 조회/저장 구현
+- [x] ~~기본 설정 조회/저장 구현~~
   - 관련 API: `GET /api/settings`, `PUT /api/settings`
-- [x] Docker Compose 기반 backend/frontend 실행 구조 구현
+- [x] ~~Docker Compose 기반 backend/frontend 실행 구조 구현~~
   - 관련 파일: `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`
 
 ---
@@ -50,36 +50,36 @@
 
 ### 1.1 백엔드 재생 결과 처리
 
-- [ ] `backend/api/routes/player.py`에서 `play_lecture()` 반환값을 `final_state`로 수신
-- [ ] `final_state.error`가 있으면 `app_state.playback.error`에 저장
-- [ ] `final_state.ended`가 있으면 `app_state.playback.ended`에 저장
-- [ ] 재생 종료 시 `app_state.playback.current`, `duration`, `progress_pct` 최종값 유지
-- [ ] 취소와 오류를 구분해서 상태 저장
+- [x] ~~`backend/api/routes/player.py`에서 `play_lecture()` 반환값을 `final_state`로 수신~~
+- [x] ~~`final_state.error`가 있으면 `app_state.playback.error`에 저장~~
+- [x] ~~`final_state.ended`가 있으면 `app_state.playback.ended`에 저장~~
+- [x] ~~재생 종료 시 `app_state.playback.current`, `duration`, `progress_pct` 최종값 유지~~
+- [x] ~~취소와 오류를 구분해서 상태 저장~~
   - 사용자 중지: cancelled/stopped
   - 재생 실패: error
   - 정상 완료: completed
 
 ### 1.2 프론트 재생 오류 표시
 
-- [ ] 대시보드에 최근 재생 오류 메시지 영역 추가
-- [ ] `/api/player/status` 응답의 `error`를 UI에 표시
-- [ ] 재생 실패 시 idle 카드만 표시하지 않고 실패 사유 표시
-- [ ] 사용자가 오류 메시지를 닫거나 다음 재생 시 초기화할 수 있게 처리
+- [x] ~~대시보드에 최근 재생 오류 메시지 영역 추가~~
+- [x] ~~`/api/player/status` 응답의 `error`를 UI에 표시~~
+- [x] ~~재생 실패 시 idle 카드만 표시하지 않고 실패 사유 표시~~
+- [x] ~~사용자가 오류 메시지를 닫거나 다음 재생 시 초기화할 수 있게 처리~~
 
 ### 1.3 재생 완료 후 강의 상태 갱신
 
-- [ ] 웹 재생 완료 시 해당 lecture의 `completion`을 로컬 cache에서 `completed`로 갱신
-- [ ] 재생 완료 후 `/api/courses/stats`가 최신 완료/미수강 수를 반환하도록 갱신
-- [ ] 프론트에서 재생 완료 감지 후 통계 카드 자동 refresh
-- [ ] 프론트에서 재생 완료 감지 후 강의 목록/상세 패널 자동 refresh 또는 stale 표시
+- [x] ~~웹 재생 완료 시 해당 lecture의 `completion`을 로컬 cache에서 `completed`로 갱신~~
+- [x] ~~재생 완료 후 `/api/courses/stats`가 최신 완료/미수강 수를 반환하도록 갱신~~
+- [x] ~~프론트에서 재생 완료 감지 후 통계 카드 자동 refresh~~
+- [x] ~~프론트에서 재생 완료 감지 후 강의 목록/상세 패널 자동 refresh 또는 stale 표시~~
 - [ ] 완료 갱신 실패 시 사용자가 수동 새로고침하도록 안내
 
 ### 1.4 웹 재생 로그
 
-- [ ] 웹 재생 경로에서도 `debug=True` 또는 `log_fn` 기반 로그 수집
-- [ ] 오류 발생 시 `logs/*_play.log` 저장
+- [x] ~~웹 재생 경로에서도 `debug=True` 또는 `log_fn` 기반 로그 수집~~
+- [x] ~~오류 발생 시 `logs/*_play.log` 저장~~
 - [ ] 정상 완료 시에도 필요하면 진단 로그 저장 여부 결정
-- [ ] `/api/player/status` 또는 별도 API에서 최근 재생 로그 경로/요약 제공 여부 결정
+- [x] ~~`/api/player/status` 또는 별도 API에서 최근 재생 로그 경로/요약 제공 여부 결정~~
 
 ### 1.5 검증
 
@@ -88,8 +88,10 @@
 - [ ] 중지 버튼 동작 확인
 - [ ] 재생 완료 후 통계 갱신 확인
 - [ ] 재생 완료 후 강의 목록 완료 표시 확인
-- [ ] `uv run pytest` 통과
-- [ ] `uv run ruff check .` 통과
+- [x] ~~`uv run pytest` 통과~~
+  - 2026-04-13: `36 passed`
+- [x] ~~`uv run ruff check .` 통과~~
+  - 2026-04-13: `All checks passed!`
 
 ---
 
@@ -138,7 +140,7 @@
 
 ### 3.2 Player API 보호
 
-- [ ] `POST /api/player/stop`에 인증 체크 추가
+- [x] ~~`POST /api/player/stop`에 인증 체크 추가~~
 - [ ] `GET /api/player/status`의 공개 여부 결정
   - 로컬 단일 사용자 서비스라면 공개 가능
   - 외부 노출 가능성이 있으면 인증 요구
@@ -605,16 +607,17 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
 
 ## 16. 코드 품질/CI 체크리스트
 
-현재 `uv run pytest`는 통과하지만 `uv run ruff check .`는 실패합니다.
+2026-04-13 기준 `uv run pytest`와 `uv run ruff check .`는 통과합니다. 이후 변경 시 계속 유지합니다.
 
 ### 16.1 Ruff 정리
 
-- [ ] backend import sorting 수정
-- [ ] `backend/api/routes/auth.py`의 `raise HTTPException(...)`에 `from None` 또는 `from e` 추가
-- [ ] `backend/api/routes/settings.py`의 `Optional[str]`를 `str | None`로 변경
-- [ ] `backend/api/state.py`의 `Optional[...]`를 `... | None`로 변경
-- [ ] `tests/test_config.py` unused `tempfile` 제거
-- [ ] `uv run ruff check .` 통과
+- [x] ~~backend import sorting 수정~~
+- [x] ~~`backend/api/routes/auth.py`의 `raise HTTPException(...)`에 `from None` 또는 `from e` 추가~~
+- [x] ~~`backend/api/routes/settings.py`의 `Optional[str]`를 `str | None`로 변경~~
+- [x] ~~`backend/api/state.py`의 `Optional[...]`를 `... | None`로 변경~~
+- [x] ~~`tests/test_config.py` unused `tempfile` 제거~~
+- [x] ~~`uv run ruff check .` 통과~~
+  - 2026-04-13: `All checks passed!`
 
 ### 16.2 테스트 보강
 

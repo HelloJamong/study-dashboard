@@ -1,6 +1,5 @@
-from fastapi import APIRouter, HTTPException
-
 from backend.api.state import app_state
+from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
 

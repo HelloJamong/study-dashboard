@@ -1,9 +1,8 @@
 from contextlib import asynccontextmanager
 
+from backend.api.routes import auth, courses, player, settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from backend.api.routes import auth, courses, player, settings
 
 
 @asynccontextmanager

@@ -1,4 +1,3 @@
-from typing import Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -31,21 +30,21 @@ async def get_settings():
 
 
 class SettingsUpdate(BaseModel):
-    DOWNLOAD_RULE: Optional[str] = None
-    DOWNLOAD_DIR: Optional[str] = None
-    STT_ENABLED: Optional[str] = None
-    STT_LANGUAGE: Optional[str] = None
-    WHISPER_MODEL: Optional[str] = None
-    AI_ENABLED: Optional[str] = None
-    AI_AGENT: Optional[str] = None
-    GEMINI_MODEL: Optional[str] = None
-    GOOGLE_API_KEY: Optional[str] = None
-    OPENAI_API_KEY: Optional[str] = None
-    SUMMARY_PROMPT_EXTRA: Optional[str] = None
-    TELEGRAM_ENABLED: Optional[str] = None
-    TELEGRAM_BOT_TOKEN: Optional[str] = None
-    TELEGRAM_CHAT_ID: Optional[str] = None
-    TELEGRAM_AUTO_DELETE: Optional[str] = None
+    DOWNLOAD_RULE: str | None = None
+    DOWNLOAD_DIR: str | None = None
+    STT_ENABLED: str | None = None
+    STT_LANGUAGE: str | None = None
+    WHISPER_MODEL: str | None = None
+    AI_ENABLED: str | None = None
+    AI_AGENT: str | None = None
+    GEMINI_MODEL: str | None = None
+    GOOGLE_API_KEY: str | None = None
+    OPENAI_API_KEY: str | None = None
+    SUMMARY_PROMPT_EXTRA: str | None = None
+    TELEGRAM_ENABLED: str | None = None
+    TELEGRAM_BOT_TOKEN: str | None = None
+    TELEGRAM_CHAT_ID: str | None = None
+    TELEGRAM_AUTO_DELETE: str | None = None
 
 
 @router.put("")

@@ -1,0 +1,116 @@
+"""웹 player route 상태 반영 테스트."""
+
+import pytest
+from backend.api.routes import player as player_route
+from backend.api.state import PlaybackProgress, app_state
+
+from src.player.background_player import PlaybackState
+from src.scraper.models import Course, CourseDetail, LectureItem, LectureType, Week
+
+
+class _FakeScraper:
+    _page = object()
+
+
+def _reset_app_state() -> None:
+    app_state.scraper = None
+    app_state.user_id = ""
+    app_state.courses = []
+    app_state.details = []
+    app_state.is_playing = False
+    app_state.current_lecture_title = ""
+    app_state.current_lecture_url = ""
+    app_state.current_week_label = ""
+    app_state.current_course_name = ""
+    app_state.playback = PlaybackProgress()
+    app_state.play_task = None
+
+
+def _seed_course() -> tuple[Course, LectureItem]:
+    course = Course(id="42", long_name="테스트 과목", href="/courses/42", term="2026-1")
+    lecture = LectureItem(
+        title="1강",
+        item_url="/courses/42/lecture_attendance/items/view/1",
+        lecture_type=LectureType.MOVIE,
+        week_label="1주차",
+        completion="incomplete",
+    )
+    detail = CourseDetail(
+        course=course,
+        course_name=course.long_name,
+        professors="교수",
+        weeks=[Week(title="1주차", week_number=1, lectures=[lecture])],
+    )
+    app_state.scraper = _FakeScraper()
+    app_state.user_id = "student"
+    app_state.courses = [course]
+    app_state.details = [detail]
+    return course, lecture
+
+
+@pytest.fixture(autouse=True)
+def reset_state():
+    _reset_app_state()
+    yield
+    _reset_app_state()
+
+
+@pytest.mark.asyncio
+async def test_start_play_marks_completed_lecture(monkeypatch):
+    course, lecture = _seed_course()
+
+    async def fake_play_lecture(page, lecture_url, on_progress=None, debug=False, log_fn=None):
+        state = PlaybackState(current=10, duration=10, ended=True)
+        if log_fn:
+            log_fn("fake playback log")
+        if on_progress:
+            on_progress(state)
+        return state
+
+    monkeypatch.setattr("src.player.background_player.play_lecture", fake_play_lecture)
+
+    await player_route.start_play(
+        player_route.PlayRequest(
+            course_id=course.id,
+            lecture_url=lecture.full_url,
+            lecture_title=lecture.title,
+            week_label=lecture.week_label,
+        )
+    )
+    await app_state.play_task
+
+    assert app_state.is_playing is False
+    assert app_state.playback.status == "completed"
+    assert app_state.playback.ended is True
+    assert lecture.completion == "completed"
+
+
+@pytest.mark.asyncio
+async def test_start_play_preserves_playback_error(monkeypatch):
+    course, lecture = _seed_course()
+
+    async def fake_play_lecture(page, lecture_url, on_progress=None, debug=False, log_fn=None):
+        state = PlaybackState(current=2, duration=10, ended=False, error="비디오 프레임을 찾지 못했습니다.")
+        if on_progress:
+            on_progress(state)
+        return state
+
+    monkeypatch.setattr("src.player.background_player.play_lecture", fake_play_lecture)
+    monkeypatch.setattr(player_route, "_write_playback_log", lambda *args: "/tmp/web_play.log")
+
+    await player_route.start_play(
+        player_route.PlayRequest(
+            course_id=course.id,
+            lecture_url=lecture.full_url,
+            lecture_title=lecture.title,
+            week_label=lecture.week_label,
+        )
+    )
+    await app_state.play_task
+
+    status = await player_route.get_status()
+    assert status["is_playing"] is False
+    assert status["status"] == "error"
+    assert status["error"] == "비디오 프레임을 찾지 못했습니다."
+    assert status["log_path"] == "/tmp/web_play.log"
+    assert lecture.completion == "incomplete"
