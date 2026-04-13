@@ -22,6 +22,8 @@
 - **로그인 실패/지연 처리 보강** (`backend/api/routes/auth.py`, `frontend/index.html`)
   - 백엔드 로그인 시도에 45초 제한을 적용해 Playwright 로그인 대기가 무한히 이어지지 않도록 함
   - cancellation에 즉시 응답하지 않는 Playwright 작업도 timeout 시 사용자 응답을 막지 않도록 처리
+  - 잘못된 계정/비밀번호 입력 시 SSO 로그인 폼 잔류, alert, 오류 문구를 짧은 폴링으로 감지해 실패 메시지를 더 빠르게 반환 (`src/auth/login.py`)
+  - 로그인 성공/실패 판정 단위 테스트 추가 (`tests/test_login.py`) — 폼 잔류 시 빠른 실패, URL 전환 시 성공 시나리오 검증
   - 프론트 로그인 요청에 60초 timeout을 적용하고 실패/timeout 메시지를 로그인 카드에 표시
   - 학번/비밀번호 미입력 시 즉시 경고 메시지 표시
 - **로컬 HTTPS 지원** (`frontend/nginx.conf`, `docker-compose.yml`)
@@ -45,7 +47,7 @@
 - 로컬 HTTPS 인증서 실파일(`certs/local.crt`, `certs/local.key`)을 git 대상에서 제외
 
 #### 검증
-- `uv run pytest` — 39 passed
+- `uv run pytest` — 41 passed
 - `uv run ruff check .` — All checks passed
 - FastAPI smoke 확인
   - `GET /api/health` → 200

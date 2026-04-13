@@ -1,28 +1,109 @@
+import asyncio
+from contextlib import suppress
+
 from playwright.async_api import Page
+
+_LOGIN_PAGE_TIMEOUT_MS = 10_000
+_LOGIN_RESULT_TIMEOUT_SECONDS = 10.0
+_LOGIN_FORM_STABLE_SECONDS = 3.0
+_LOGIN_ERROR_KEYWORDS = (
+    "로그인 실패",
+    "올바르지",
+    "일치하지",
+    "잘못",
+    "invalid",
+    "incorrect",
+    "failed",
+)
+
+
+async def _is_login_form_visible(page: Page) -> bool:
+    """로그인 폼이 여전히 표시되는지 확인한다."""
+    with suppress(Exception):
+        user_input = await page.query_selector("input#userid")
+        if user_input and await user_input.is_visible():
+            return True
+    return False
+
+
+async def _has_login_error_text(page: Page) -> bool:
+    """SSO 페이지에 로그인 실패 문구가 표시되는지 확인한다."""
+    with suppress(Exception):
+        return bool(
+            await page.evaluate(
+                """
+                (keywords) => {
+                    const text = (document.body && document.body.innerText || '').toLowerCase();
+                    return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+                }
+                """,
+                list(_LOGIN_ERROR_KEYWORDS),
+            )
+        )
+    return False
+
+
+async def _wait_for_login_result(page: Page, dialog_seen: asyncio.Event) -> bool:
+    """로그인 성공/실패를 짧은 폴링으로 판정한다."""
+    deadline = asyncio.get_running_loop().time() + _LOGIN_RESULT_TIMEOUT_SECONDS
+    form_visible_since: float | None = None
+
+    while asyncio.get_running_loop().time() < deadline:
+        if dialog_seen.is_set():
+            return False
+
+        if "login" not in page.url:
+            with suppress(Exception):
+                await page.wait_for_load_state("networkidle", timeout=_LOGIN_PAGE_TIMEOUT_MS)
+            return True
+
+        if await _has_login_error_text(page):
+            return False
+
+        if await _is_login_form_visible(page):
+            now = asyncio.get_running_loop().time()
+            if form_visible_since is None:
+                form_visible_since = now
+            elif now - form_visible_since >= _LOGIN_FORM_STABLE_SECONDS:
+                return False
+        else:
+            form_visible_since = None
+
+        await asyncio.sleep(0.25)
+
+    return "login" not in page.url
 
 
 async def perform_login(page: Page, username: str, password: str) -> bool:
     """SSO 로그인 처리. 성공 시 True, 실패 시 False 반환."""
+    dialog_seen = asyncio.Event()
+
+    def _on_dialog(dialog):
+        dialog_seen.set()
+        with suppress(Exception):
+            task = asyncio.create_task(dialog.accept())
+            task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+
+    page.on("dialog", _on_dialog)
     try:
         login_button = await page.query_selector(".login_btn a")
         if login_button:
             await login_button.click()
-            await page.wait_for_load_state("networkidle")
+            with suppress(Exception):
+                await page.wait_for_selector("input#userid", timeout=_LOGIN_PAGE_TIMEOUT_MS)
 
-        await page.fill("input#userid", username)
-        await page.fill("input#pwd", password)
+        await page.fill("input#userid", username, timeout=_LOGIN_PAGE_TIMEOUT_MS)
+        await page.fill("input#pwd", password, timeout=_LOGIN_PAGE_TIMEOUT_MS)
 
-        async with page.expect_navigation(wait_until="networkidle"):
-            await page.click("a.btn_login")
+        await page.click("a.btn_login", timeout=_LOGIN_PAGE_TIMEOUT_MS)
 
-        if "login" in page.url:
-            return False
-
-        await page.wait_for_load_state("networkidle")
-        return True
+        return await _wait_for_login_result(page, dialog_seen)
 
     except Exception:
         return False
+    finally:
+        with suppress(Exception):
+            page.remove_listener("dialog", _on_dialog)
 
 
 async def ensure_logged_in(page: Page, username: str, password: str) -> bool:
