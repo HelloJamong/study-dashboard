@@ -1,51 +1,34 @@
 # Changelog
 
-## [v26.04.06] - 2026-04-14
+## [v26.04.04] - 2026-04-14
 
-### 프론트 XSS/HTML Injection 방어
-
-#### 수정
-- **`esc()` 헬퍼 추가** (`frontend/index.html`)
-  - `document.createElement('div').textContent` 기반 HTML 이스케이프 유틸
-  - `&`, `<`, `>`, `"`, `'` 등 모든 특수문자를 안전하게 변환
-- **`renderCourseCards()` 보호**
-  - `course.name`, `course.term` → `esc()` 적용
-  - 숫자 값(`pending`, `total`, `pct`)은 연산 결과이므로 현행 유지
-- **`loadCourseDetail()` 주차/강의 렌더링 보호**
-  - `week.title` → `esc()` 적용
-  - 강의 row의 `data-url`, `data-title`, `data-week`, `data-course` → `innerHTML` 템플릿 문자열 대신 `element.dataset` 직접 할당
-  - `lec.title`, `lec.duration` → `element.textContent` 직접 할당 (innerHTML 우회)
-  - `lec.completion` → `'completed'` / `'incomplete'` 두 값만 허용하도록 화이트리스트 검증
-- **오류 메시지 보호**
-  - 강의 목록/상세 오류 div의 `err.message` → `esc()` 적용
-
-## [v26.04.05] - 2026-04-14
-
-### 보안 접근 제어 보강
+### 대시보드 UX 개선 및 보안 강화
 
 #### 수정
+- **대시보드 통계 초기 로딩 문제** (`frontend/index.html`)
+  - 로그인 직후 대시보드 진입 시 통계가 0/0으로 잘못 표시되던 문제 수정
+  - `loadStats()` 호출 시 백엔드 `details`가 비어있으면 `GET /api/courses`를 먼저 호출해 채운 뒤 통계를 재조회하도록 개선
+  - 이미 과목이 로드된 세션에서는 추가 요청 없이 즉시 통계 갱신 유지
+- **로그아웃 버튼 가시성** (`frontend/index.html`)
+  - 페이지 내용이 길어질 때 로그아웃 버튼이 화면 밖으로 밀려 보이지 않던 문제 수정
+  - `#app-shell`을 `min-h-screen` → `h-screen overflow-hidden`으로, `aside`에 `overflow-y-auto` 추가
+  - 사이드바가 뷰포트 내에서 독립 스크롤하므로 어느 페이지에서도 로그아웃 버튼 항상 접근 가능
+- **로그아웃 시 로그인 폼 초기화** (`frontend/index.html`)
+  - `showLogin()` 진입 시 학번·비밀번호 입력창과 오류 메시지를 초기화
+  - 로그아웃 후 잔류 자격증명으로 재로그인 가능하던 문제 수정
+  - 세션 만료 등 모든 로그인 화면 전환 경로에 일괄 적용
 - **Settings API 인증 추가** (`backend/api/routes/settings.py`)
   - `GET /api/settings`, `PUT /api/settings` 모두 `_require_auth()` 추가
   - 비로그인 상태에서 설정 조회/변경 시 401 반환
 - **Auto status API 인증 추가** (`backend/api/routes/auto.py`)
   - `GET /api/auto/status`에 `_require_auth()` 추가 (start/stop은 기존에 이미 인증 적용)
-- **미조치 항목 결정**
-  - `GET /api/player/status`: 로컬 단일 사용자 서비스 특성상 공개 유지
-  - `allow_origins=["*"]` CORS: 로컬 전용 배포 환경이므로 현행 유지
-
-## [v26.04.04] - 2026-04-13
-
-### 대시보드 통계 초기 로딩 및 로그아웃 버튼 가시성 개선
-
-#### 수정
-- **대시보드 통계 초기 로딩 문제** (`frontend/index.html`)
-  - 로그인 직후 대시보드 진입 시 통계가 0/0으로 잘못 표시되던 문제 수정
-  - `loadStats()` 호출 시 백엔드 `details`가 비어있으면(과목 미로딩 상태) `GET /api/courses`를 먼저 호출해 `app_state.details`를 채운 뒤 통계를 재조회하도록 개선
-  - 이미 과목이 로드된 세션에서는 추가 요청 없이 즉시 통계 갱신 유지
-- **로그아웃 버튼 가시성** (`frontend/index.html`)
-  - 설정 등 페이지 내용이 길어질 때 로그아웃 버튼이 화면 밖으로 밀려 보이지 않던 문제 수정
-  - `#app-shell`을 `min-h-screen` → `h-screen overflow-hidden`으로, `aside`에 `overflow-y-auto` 추가
-  - 사이드바가 뷰포트 내에서 독립 스크롤하므로 어느 페이지에서도 로그아웃 버튼 항상 접근 가능
+  - `GET /api/player/status`는 로컬 단일 사용자 서비스 특성상 공개 유지
+- **프론트 XSS/HTML Injection 방어** (`frontend/index.html`)
+  - `esc()` 헬퍼 추가 — `div.textContent` 기반 HTML 특수문자 이스케이프
+  - `renderCourseCards()`: `course.name`, `course.term` → `esc()` 적용
+  - `loadCourseDetail()`: `week.title` → `esc()`, 강의 row `data-*` 속성은 `element.dataset` 직접 할당
+  - `lec.title`, `lec.duration` → `textContent` 직접 할당, `lec.completion` → 화이트리스트 검증
+  - 오류 메시지 div의 `err.message` → `esc()` 적용
 
 ## [v26.04.03] - 2026-04-03
 
