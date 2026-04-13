@@ -10,12 +10,25 @@ class PlaybackProgress:
     error: str | None = None
     status: str = "idle"
     log_path: str | None = None
+    refresh_recommended: bool = False  # 완료 갱신 실패 시 새로고침 안내 (1.3)
 
     @property
     def progress_pct(self) -> float:
         if self.duration <= 0:
             return 0.0
         return min(100.0, self.current / self.duration * 100)
+
+
+@dataclass
+class AutoModeState:
+    enabled: bool = False
+    schedule_hours: list = field(default_factory=lambda: [9, 13, 18, 23])
+    task: asyncio.Task | None = None
+    current_course: str = ""
+    current_lecture: str = ""
+    processed_count: int = 0
+    next_run_at: str = ""
+    error: str | None = None
 
 
 @dataclass
@@ -31,6 +44,7 @@ class AppState:
     current_course_name: str = ""
     playback: PlaybackProgress = field(default_factory=PlaybackProgress)
     play_task: asyncio.Task | None = None
+    auto: AutoModeState = field(default_factory=AutoModeState)
 
 
 app_state = AppState()

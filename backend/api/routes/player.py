@@ -111,7 +111,9 @@ async def start_play(req: PlayRequest):
                 )
             elif final_state.ended:
                 app_state.playback.status = "completed"
-                _mark_lecture_completed(req.course_id, req.lecture_url)
+                updated = _mark_lecture_completed(req.course_id, req.lecture_url)
+                if not updated:
+                    app_state.playback.refresh_recommended = True
             else:
                 app_state.playback.status = "stopped"
         except asyncio.CancelledError:
@@ -162,4 +164,5 @@ async def get_status():
         "error": pb.error,
         "status": pb.status,
         "log_path": pb.log_path,
+        "refresh_recommended": pb.refresh_recommended,
     }

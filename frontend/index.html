@@ -211,6 +211,41 @@
             <p class="text-xs text-slate-500 mt-1">남은 강의 수</p>
           </div>
         </div>
+
+        <!-- 자동 모드 카드 -->
+        <div class="bg-[#1E293B] rounded-2xl border border-slate-700 p-5 mt-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-semibold text-white">자동 모드</p>
+              <p class="text-xs text-slate-500 mt-0.5">미시청 강의를 스케줄에 따라 자동 재생합니다.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <!-- 스케줄 설정 버튼 -->
+              <button id="btn-auto-schedule"
+                class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-300 text-xs transition-all">
+                <i class="fa-solid fa-clock text-slate-400"></i>
+                <span id="auto-schedule-label">09·13·18·23시</span>
+              </button>
+              <!-- ON/OFF 토글 -->
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="toggle-auto" class="sr-only peer" />
+                <div class="w-10 h-6 bg-slate-700 rounded-full peer peer-checked:bg-indigo-500 transition-colors after:content-[''] after:absolute after:top-1 after:left-1 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-4"></div>
+              </label>
+            </div>
+          </div>
+          <!-- 자동 모드 활성화 시 상태 표시 -->
+          <div id="auto-status-row" class="hidden mt-4 pt-4 border-t border-slate-700/50 flex flex-col gap-1.5">
+            <div id="auto-current" class="hidden text-xs text-slate-400">
+              <span class="inline-flex items-center gap-1 text-indigo-400 font-medium"><i class="fa-solid fa-circle-play text-xs"></i> 재생 중</span>
+              <span id="auto-current-text" class="ml-1.5 text-slate-300"></span>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-slate-500">
+              <span>처리됨 <span id="auto-processed" class="text-white font-medium">0</span>개</span>
+              <span id="auto-next-row" class="hidden">다음 실행 <span id="auto-next" class="text-slate-300 font-medium"></span></span>
+            </div>
+            <p id="auto-error" class="hidden text-xs text-red-400"></p>
+          </div>
+        </div>
       </div>
 
       <!-- ── 강의 목록 ── -->
@@ -389,6 +424,33 @@
     </main>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════════
+       스케줄 설정 모달
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-schedule" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="bg-[#1E293B] rounded-2xl border border-slate-700 p-6 w-full max-w-sm mx-4">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="font-bold text-white">자동 모드 스케줄</h3>
+        <button id="btn-schedule-close" class="text-slate-500 hover:text-white transition-colors">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- 빠른 선택 -->
+      <p class="text-xs text-slate-400 mb-2">빠른 선택</p>
+      <div id="schedule-presets" class="grid grid-cols-6 gap-1.5 mb-4"></div>
+
+      <!-- 시간 그리드 -->
+      <p class="text-xs text-slate-400 mb-2">직접 선택 <span class="text-slate-600">(최소 1개, 최대 6개)</span></p>
+      <div id="schedule-hours-grid" class="grid grid-cols-6 gap-1.5 mb-5"></div>
+
+      <button id="btn-schedule-apply"
+        class="w-full py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20">
+        적용
+      </button>
+    </div>
+  </div>
+
   <script>
     // ═══════════════════════════════════════════════════════════════
     // 유틸리티
@@ -446,8 +508,11 @@
       userId: '',
       courses: [],
       pollingTimer: null,
+      autoPollingTimer: null,
       currentPage: 'dashboard',
       lastPlayerStatus: '',
+      autoScheduleHours: [9, 13, 18, 23],
+      autoEnabled: false,
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -492,6 +557,7 @@
       $('#page-login').classList.remove('hidden');
       $('#app-shell').classList.add('hidden');
       stopPolling();
+      stopAutoPolling();
     }
 
     function showApp(userId) {
@@ -501,6 +567,7 @@
       $('#sidebar-user-id').textContent = userId;
       navigate('dashboard');
       startPolling();
+      startAutoPolling();
     }
 
     // 로그인 폼
@@ -598,6 +665,10 @@
             message.className = 'mt-5 px-4 py-3 rounded-xl border text-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-300';
             messageTitle.textContent = '재생 완료';
             messageBody.textContent = `${s.lecture_title} 강의 재생이 완료되었습니다.`;
+            if (s.refresh_recommended) {
+              messageLog.textContent = '강의 목록이 자동으로 업데이트되지 않았습니다. 강의 목록 탭의 새로고침 버튼을 눌러주세요.';
+              messageLog.classList.remove('hidden');
+            }
           } else if (status === 'stopped' && s.lecture_title) {
             message.className = 'mt-5 px-4 py-3 rounded-xl border text-sm bg-amber-500/10 border-amber-500/30 text-amber-300';
             messageTitle.textContent = '재생 중지됨';
@@ -842,6 +913,171 @@
         setTimeout(() => msg.classList.add('hidden'), 3000);
       } catch (err) {
         alert(`저장 실패: ${err.message}`);
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // 자동 모드
+    // ═══════════════════════════════════════════════════════════════
+    function startAutoPolling() {
+      stopAutoPolling();
+      updateAutoUI();
+      state.autoPollingTimer = setInterval(updateAutoUI, 3000);
+    }
+
+    function stopAutoPolling() {
+      if (state.autoPollingTimer) { clearInterval(state.autoPollingTimer); state.autoPollingTimer = null; }
+    }
+
+    function updateScheduleLabel(hours) {
+      const sorted = [...hours].sort((a, b) => a - b);
+      $('#auto-schedule-label').textContent = sorted.map(h => `${String(h).padStart(2,'0')}시`).join('·');
+    }
+
+    async function updateAutoUI() {
+      try {
+        const s = await api('GET', '/api/auto/status');
+        state.autoEnabled = s.enabled;
+        state.autoScheduleHours = s.schedule_hours || [9, 13, 18, 23];
+
+        const toggle = $('#toggle-auto');
+        if (toggle.checked !== s.enabled) toggle.checked = s.enabled;
+
+        updateScheduleLabel(state.autoScheduleHours);
+
+        const statusRow = $('#auto-status-row');
+        if (s.enabled) {
+          statusRow.classList.remove('hidden');
+          $('#auto-processed').textContent = s.processed_count || 0;
+          if (s.current_lecture) {
+            $('#auto-current').classList.remove('hidden');
+            $('#auto-current-text').textContent = `${s.current_course} · ${s.current_lecture}`;
+          } else {
+            $('#auto-current').classList.add('hidden');
+          }
+          if (s.next_run_at) {
+            $('#auto-next-row').classList.remove('hidden');
+            $('#auto-next').textContent = s.next_run_at;
+          } else {
+            $('#auto-next-row').classList.add('hidden');
+          }
+          if (s.error) {
+            $('#auto-error').textContent = s.error;
+            $('#auto-error').classList.remove('hidden');
+          } else {
+            $('#auto-error').classList.add('hidden');
+          }
+        } else {
+          statusRow.classList.add('hidden');
+        }
+      } catch {}
+    }
+
+    $('#toggle-auto').addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      try {
+        if (enabled) {
+          await api('POST', '/api/auto/start', { schedule_hours: state.autoScheduleHours });
+        } else {
+          await api('POST', '/api/auto/stop');
+        }
+        state.autoEnabled = enabled;
+        updateAutoUI();
+      } catch (err) {
+        e.target.checked = !enabled;
+        alert(err.message);
+      }
+    });
+
+    // ── 스케줄 모달 ───────────────────────────────────────────────
+    const _SCHEDULE_PRESETS = [
+      [12],
+      [9, 21],
+      [9, 15, 21],
+      [9, 13, 18, 23],
+      [8, 11, 14, 18, 22],
+      [7, 10, 13, 16, 19, 22],
+    ];
+
+    let _scheduleSelected = new Set([9, 13, 18, 23]);
+
+    function _isPresetActive(hours) {
+      if (hours.length !== _scheduleSelected.size) return false;
+      return hours.every(h => _scheduleSelected.has(h));
+    }
+
+    function renderScheduleModal() {
+      // 빠른 선택 프리셋
+      const presetsEl = $('#schedule-presets');
+      presetsEl.innerHTML = '';
+      _SCHEDULE_PRESETS.forEach((hours, i) => {
+        const btn = document.createElement('button');
+        const active = _isPresetActive(hours);
+        btn.className = `py-1.5 text-xs font-bold rounded-lg border transition-all ${
+          active ? 'bg-indigo-500 border-indigo-500 text-white'
+                 : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-indigo-500/50'
+        }`;
+        btn.textContent = `${i + 1}회`;
+        if (i === 3) btn.textContent += ' ★';
+        btn.addEventListener('click', () => {
+          _scheduleSelected = new Set(hours);
+          renderScheduleModal();
+        });
+        presetsEl.appendChild(btn);
+      });
+
+      // 시간 그리드 (00~23)
+      const gridEl = $('#schedule-hours-grid');
+      gridEl.innerHTML = '';
+      for (let h = 0; h < 24; h++) {
+        const btn = document.createElement('button');
+        const selected = _scheduleSelected.has(h);
+        btn.className = `py-1.5 text-xs font-bold rounded-lg border transition-all ${
+          selected ? 'bg-indigo-500 border-indigo-500 text-white'
+                   : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-indigo-500/50'
+        }`;
+        btn.textContent = String(h).padStart(2, '0');
+        btn.addEventListener('click', () => {
+          if (_scheduleSelected.has(h)) {
+            if (_scheduleSelected.size > 1) _scheduleSelected.delete(h);
+          } else {
+            if (_scheduleSelected.size < 6) _scheduleSelected.add(h);
+          }
+          renderScheduleModal();
+        });
+        gridEl.appendChild(btn);
+      }
+    }
+
+    $('#btn-auto-schedule').addEventListener('click', () => {
+      _scheduleSelected = new Set(state.autoScheduleHours);
+      renderScheduleModal();
+      $('#modal-schedule').classList.remove('hidden');
+    });
+
+    $('#btn-schedule-close').addEventListener('click', () => {
+      $('#modal-schedule').classList.add('hidden');
+    });
+
+    $('#modal-schedule').addEventListener('click', (e) => {
+      if (e.target === $('#modal-schedule')) $('#modal-schedule').classList.add('hidden');
+    });
+
+    $('#btn-schedule-apply').addEventListener('click', async () => {
+      const hours = [..._scheduleSelected].sort((a, b) => a - b);
+      state.autoScheduleHours = hours;
+      updateScheduleLabel(hours);
+      $('#modal-schedule').classList.add('hidden');
+
+      // 자동 모드 실행 중이면 새 스케줄로 재시작
+      if (state.autoEnabled) {
+        try {
+          await api('POST', '/api/auto/stop');
+          await api('POST', '/api/auto/start', { schedule_hours: hours });
+          updateAutoUI();
+        } catch (err) {
+          alert(`스케줄 업데이트 실패: ${err.message}`);
+        }
       }
     });
 
