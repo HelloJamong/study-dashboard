@@ -193,6 +193,7 @@ def _consume_task_exception(task: asyncio.Task) -> None:
 
 @router.get("/status")
 async def auto_status():
+    _require_auth()
     a = app_state.auto
     return {
         "enabled": a.enabled,

@@ -1,5 +1,19 @@
 # Changelog
 
+## [v26.04.05] - 2026-04-14
+
+### 보안 접근 제어 보강
+
+#### 수정
+- **Settings API 인증 추가** (`backend/api/routes/settings.py`)
+  - `GET /api/settings`, `PUT /api/settings` 모두 `_require_auth()` 추가
+  - 비로그인 상태에서 설정 조회/변경 시 401 반환
+- **Auto status API 인증 추가** (`backend/api/routes/auto.py`)
+  - `GET /api/auto/status`에 `_require_auth()` 추가 (start/stop은 기존에 이미 인증 적용)
+- **미조치 항목 결정**
+  - `GET /api/player/status`: 로컬 단일 사용자 서비스 특성상 공개 유지
+  - `allow_origins=["*"]` CORS: 로컬 전용 배포 환경이므로 현행 유지
+
 ## [v26.04.04] - 2026-04-13
 
 ### 대시보드 통계 초기 로딩 및 로그아웃 버튼 가시성 개선

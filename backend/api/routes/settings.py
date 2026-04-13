@@ -1,5 +1,6 @@
 
-from fastapi import APIRouter
+from backend.api.state import app_state
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src import db
@@ -11,8 +12,14 @@ router = APIRouter()
 _SENSITIVE = {"LMS_USER_ID", "LMS_PASSWORD", "GOOGLE_API_KEY", "OPENAI_API_KEY", "TELEGRAM_BOT_TOKEN"}
 
 
+def _require_auth() -> None:
+    if not app_state.scraper:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+
+
 @router.get("")
 async def get_settings():
+    _require_auth()
     return {
         "DOWNLOAD_DIR": Config.DOWNLOAD_DIR,
         "DOWNLOAD_RULE": Config.DOWNLOAD_RULE,
@@ -49,6 +56,7 @@ class SettingsUpdate(BaseModel):
 
 @router.put("")
 async def update_settings(body: SettingsUpdate):
+    _require_auth()
     to_save = {}
     for key, val in body.model_dump(exclude_none=True).items():
         to_save[key] = encrypt(val) if key in _SENSITIVE and val else val
