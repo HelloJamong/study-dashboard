@@ -60,7 +60,6 @@ class Config:
     LMS_USER_ID: str = ""
     LMS_PASSWORD: str = ""
     GOOGLE_API_KEY: str = ""
-    OPENAI_API_KEY: str = ""
     WHISPER_MODEL: str = "base"
     STT_LANGUAGE: str = "ko"
     DOWNLOAD_DIR: str = ""
@@ -81,7 +80,6 @@ class Config:
         cls.LMS_USER_ID = _load_credential("LMS_USER_ID")
         cls.LMS_PASSWORD = _load_credential("LMS_PASSWORD")
         cls.GOOGLE_API_KEY = _load_credential("GOOGLE_API_KEY")
-        cls.OPENAI_API_KEY = _load_credential("OPENAI_API_KEY")
         cls.TELEGRAM_BOT_TOKEN = _load_credential("TELEGRAM_BOT_TOKEN")
         cls.WHISPER_MODEL = db.get("WHISPER_MODEL", "base")
         cls.STT_LANGUAGE = db.get("STT_LANGUAGE", "ko")
@@ -151,12 +149,9 @@ class Config:
         }
         if gemini_model:
             to_save["GEMINI_MODEL"] = gemini_model
-        if ai_enabled and ai_agent == "gemini":
+        if ai_enabled:
             cls.GOOGLE_API_KEY = api_key
             to_save["GOOGLE_API_KEY"] = encrypt(api_key) if api_key else ""
-        elif ai_enabled and ai_agent == "openai":
-            cls.OPENAI_API_KEY = api_key
-            to_save["OPENAI_API_KEY"] = encrypt(api_key) if api_key else ""
 
         db.set_many(to_save)
 

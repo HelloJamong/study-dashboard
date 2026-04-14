@@ -43,15 +43,3 @@ def test_gemini_model_ids():
 
     assert len(GEMINI_MODEL_IDS) > 0
     assert GEMINI_DEFAULT_MODEL in GEMINI_MODEL_IDS
-
-
-def test_summarize_openai_path(tmp_path):
-    """OpenAI 에이전트 경로도 동작해야 한다."""
-    txt = tmp_path / "lecture.txt"
-    txt.write_text("강의 내용입니다.", encoding="utf-8")
-    with patch("src.summarizer.summarizer._summarize_openai", return_value="OpenAI 요약"):
-        from src.summarizer.summarizer import summarize
-
-        result = summarize(txt, agent="openai", api_key="key", model="gpt-4")
-        assert result.name == "lecture_summarized.txt"
-        assert result.read_text(encoding="utf-8") == "OpenAI 요약"

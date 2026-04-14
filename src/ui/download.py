@@ -193,8 +193,8 @@ async def run_download(page, lec, course, audio_only: bool = False, both: bool =
     # 7. AI 요약 (txt가 있고 AI_ENABLED=true인 경우)
     summary_path = None
     if txt_path and Config.AI_ENABLED == "true":
-        api_key = Config.GOOGLE_API_KEY if Config.AI_AGENT == "gemini" else Config.OPENAI_API_KEY
-        model = Config.GEMINI_MODEL if Config.AI_AGENT == "gemini" else ""
+        api_key = Config.GOOGLE_API_KEY
+        model = Config.GEMINI_MODEL
         if not api_key:
             console.print("  [yellow]AI 요약 건너뜀: API 키가 설정되지 않았습니다.[/yellow]")
         else:

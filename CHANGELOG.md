@@ -1,5 +1,19 @@
 # Changelog
 
+## [v26.04.06] - 2026-04-14
+
+### OpenAI 제거 — Gemini 단일 요약 엔진으로 통합
+
+#### 변경
+- **`src/summarizer/summarizer.py`** — `_summarize_openai()` 함수 및 `elif agent == "openai"` 분기 제거, docstring Gemini 전용으로 수정
+- **`src/config.py`** — `OPENAI_API_KEY` 클래스 속성·로드·저장 로직 제거, `save_settings()`의 ai_agent 분기를 Gemini 단일 경로로 단순화
+- **`src/ui/auto.py`** / **`src/ui/download.py`** — `Config.OPENAI_API_KEY` 참조 제거, `api_key = Config.GOOGLE_API_KEY` / `model = Config.GEMINI_MODEL` 직접 사용
+- **`backend/api/routes/settings.py`** — `_SENSITIVE`에서 `OPENAI_API_KEY` 제거, `SettingsUpdate` 모델에서 `OPENAI_API_KEY` 필드 제거
+- **`frontend/index.html`** — AI 에이전트 select에서 OpenAI 옵션 제거, OpenAI API Key 입력 필드 제거
+- **`tests/test_summarizer.py`** — `test_summarize_openai_path` 테스트 제거
+- **`pyproject.toml`** — `openai>=1.0.0` 의존성 제거
+- **`uv.lock`** — openai 패키지 및 관련 의존성 제거 (69 패키지로 축소)
+
 ## [v26.04.05] - 2026-04-14
 
 ### 강의 목록 학기 선택 UI 추가

@@ -33,7 +33,7 @@ def _check_auto_prerequisites() -> list[str]:
         issues.append("텔레그램 알림 미활성화")
     if not Config.TELEGRAM_BOT_TOKEN or not Config.TELEGRAM_CHAT_ID:
         issues.append("텔레그램 봇 토큰 또는 Chat ID 미설정")
-    api_key = Config.GOOGLE_API_KEY if Config.AI_AGENT == "gemini" else Config.OPENAI_API_KEY
+    api_key = Config.GOOGLE_API_KEY
     if not api_key:
         issues.append("AI API 키 미설정")
     return issues

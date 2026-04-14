@@ -9,7 +9,7 @@ from src.crypto import encrypt
 
 router = APIRouter()
 
-_SENSITIVE = {"LMS_USER_ID", "LMS_PASSWORD", "GOOGLE_API_KEY", "OPENAI_API_KEY", "TELEGRAM_BOT_TOKEN"}
+_SENSITIVE = {"LMS_USER_ID", "LMS_PASSWORD", "GOOGLE_API_KEY", "TELEGRAM_BOT_TOKEN"}
 
 
 def _require_auth() -> None:
@@ -46,7 +46,6 @@ class SettingsUpdate(BaseModel):
     AI_AGENT: str | None = None
     GEMINI_MODEL: str | None = None
     GOOGLE_API_KEY: str | None = None
-    OPENAI_API_KEY: str | None = None
     SUMMARY_PROMPT_EXTRA: str | None = None
     TELEGRAM_ENABLED: str | None = None
     TELEGRAM_BOT_TOKEN: str | None = None

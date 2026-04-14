@@ -1,7 +1,7 @@
 """
 AI 요약기.
 
-STT로 생성된 .txt 파일을 Gemini 또는 OpenAI API로 요약한다.
+STT로 생성된 .txt 파일을 Gemini API로 요약한다.
 결과는 동일 경로에 _summarized.txt로 저장된다.
 """
 
@@ -83,8 +83,8 @@ def summarize(
 
     Args:
         txt_path:     STT 결과 .txt 파일 경로
-        agent:        "gemini" 또는 "openai"
-        api_key:      해당 에이전트 API 키
+        agent:        "gemini" (고정)
+        api_key:      Gemini API 키
         model:        사용할 모델 ID
         extra_prompt: 사용자 추가 지시사항 (기본 프롬프트 뒤에 추가)
         course_name:  과목명 (비전채플 감지에 사용)
@@ -104,8 +104,6 @@ def summarize(
 
     if agent == "gemini":
         summary = _summarize_gemini(api_key, model, prompt)
-    elif agent == "openai":
-        summary = _summarize_openai(api_key, model, prompt)
     else:
         raise ValueError(f"지원하지 않는 AI 에이전트: {agent}")
 
@@ -132,15 +130,3 @@ def _summarize_gemini(api_key: str, model: str, prompt: str) -> str:
     return response.text
 
 
-def _summarize_openai(api_key: str, model: str, prompt: str) -> str:
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise RuntimeError("openai 패키지가 설치되어 있지 않습니다.\n설치: pip install openai") from None
-
-    client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.choices[0].message.content
