@@ -24,7 +24,8 @@ services:
       - ./data:/data
       # 다운로드 저장소 — 기본적으로 호스트 /download 를 컨테이너 /download 로 마운트한다.
       # 필요 시 DOWNLOAD_HOST_DIR=/원하는/경로 로 override 가능.
-      - ${DOWNLOAD_HOST_DIR:-/download}:/download
+      #- ${DOWNLOAD_HOST_DIR:-/download}:/download
+      - ./download:/download
       - ./logs:/app/logs
       # 캐시 (재빌드 시 재다운로드 방지)
       - whisper-cache:/root/.cache/huggingface
