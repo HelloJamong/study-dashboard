@@ -1,5 +1,76 @@
 # Changelog
 
+## [v26.04.08] - 2026-04-14
+
+### 대시보드 재구성, 다운로드 경로 고정, DB 행위 로그 및 로그 조회 UI
+
+#### 추가
+- **대시보드 미처리 항목 통계** (`src/scraper/models.py`, `backend/api/routes/courses.py`, `frontend/index.html`, `frontend/js/app.js`)
+  - 과제/퀴즈 제출 필요 여부를 집계하는 `needs_submission`, `pending_assignment_count`, `pending_quiz_count` 추가
+  - `/api/courses`, `/api/courses/stats`, 강의 상세 주차 payload에 미시청 영상/과제/퀴즈 카운트 추가
+  - 메인 대시보드에 `미시청 영상`, `제출 필요 과제`, `제출 필요 퀴즈` 카드 표시
+  - 강의 목록 과목 카드에 `미시청 영상 n개 / 과제 n개 / 퀴즈 n개` 형식의 요약 표시
+- **DB 기반 행위 로그 저장소** (`src/db.py`, `src/event_log.py`)
+  - `event_logs` SQLite 테이블 추가
+  - 모든 로그에 `YYYY-MM-DD HH:mm:ss` 형식의 `created_at` 타임스탬프 저장
+  - `password`, `token`, `api_key`, `secret`, `cookie`, `authorization` 등 민감 키워드 metadata 자동 마스킹
+  - 로그인 실패 시 사용자 ID 일부 마스킹 지원
+  - 로그 저장 실패가 본 기능을 막지 않도록 best-effort `record_event()` 구현
+- **행위 로그 기록 연결** (`backend/api/routes/auth.py`, `backend/api/routes/settings.py`, `backend/api/routes/player.py`, `backend/api/routes/tasks.py`)
+  - 로그인 성공/실패, 로그아웃 기록
+  - 설정 변경 성공/실패 및 변경 전후 snapshot 기록 (민감값 마스킹)
+  - 영상 재생 시작/완료/실패/중지/중지 요청 기록
+  - 다운로드 시작/완료/실패/미지원/취소 요청 기록
+- **행위 로그 조회 API/UI** (`backend/api/routes/logs.py`, `backend/main.py`, `frontend/index.html`, `frontend/js/app.js`, `frontend/js/state.js`)
+  - `GET /api/logs` 추가: `event_type`, `status`, `limit` 필터 지원
+  - 좌측 사이드바에 “로그 조회” 드롭다운 추가
+  - `전체 로그`, `로그인/로그아웃`, `설정 변경`, `영상 재생`, `다운로드` 유형별 조회 메뉴 추가
+  - 로그 조회 페이지에서 시간, 구분, 상태, 대상, 메시지/오류, 사용자 표시
+  - 로그 새로고침 버튼 및 상태별 배지 UI 추가
+
+#### 변경
+- **대시보드/강의 목록 표시 정책** (`frontend/index.html`, `frontend/js/app.js`)
+  - 메인 대시보드의 기존 `전체 강의 완료 / 전체` 카드 제거
+  - 강의 목록 과목 카드의 진행률 텍스트/막대 제거
+  - 과목별 미처리 항목 유무에 따라 `진행 필요` / `완료` 상태 표시
+- **다운로드 경로 고정** (`src/config.py`, `backend/api/routes/settings.py`, `src/ui/settings.py`, `frontend/index.html`, `frontend/js/state.js`, `docker-compose.yml`)
+  - 웹/CLI 설정 화면에서 다운로드 경로 입력 기능 제거
+  - `Config.get_download_dir()`가 항상 컨테이너 내부 `/download`를 반환하도록 고정
+  - 기존 DB에 저장된 `DOWNLOAD_DIR` 값은 무시
+  - `docker-compose.yml`에서 저장소 `./download`를 컨테이너 `/download`로 마운트하도록 명시
+  - README의 `DOWNLOAD_HOST_DIR` override 안내 제거 및 `/download` 고정 정책 반영
+- **체크리스트 갱신** (`docs/web-completeness-checklist.md`)
+  - 대시보드/다운로드 경로 변경 완료 항목 추가
+  - DB 행위 로그 및 로그 조회 UI 완료 항목 추가
+  - 남은 구현 필요 항목을 최신 상태로 재정리
+- **포맷 정리**
+  - 전 저장소 `ruff format --check .` 통과를 위해 기존 미포맷 파일 정리
+
+#### 테스트
+- **`tests/test_models.py`**
+  - 과제/퀴즈 제출 필요 카운트 및 upcoming/completed 제외 검증
+- **`tests/test_config.py`**
+  - 다운로드 경로 `/download` 고정 및 저장된 과거 `DOWNLOAD_DIR` 무시 검증
+- **`tests/test_web_summaries.py`**
+  - `/api/courses`, `/api/courses/stats`의 미시청 영상/과제/퀴즈 카운트 payload 검증
+- **`tests/test_web_settings.py`**
+  - 설정 변경 로그 저장 및 민감값 마스킹 검증
+- **`tests/test_event_log.py`**
+  - 타임스탬프 형식, 민감 metadata 마스킹, 로그 저장 실패 격리, 사용자 ID 마스킹 검증
+- **`tests/test_web_logs.py`**
+  - 로그 조회 API 인증 요구 및 event_type/status 필터 검증
+- **`tests/test_web_auth.py`**, **`tests/test_web_player.py`**, **`tests/test_web_download.py`**
+  - 로그인/로그아웃, 재생, 다운로드 행위 로그 기록 검증
+
+#### 검증
+- `uv run ruff format --check .` — 64 files already formatted
+- `uv run ruff check .` — All checks passed
+- `node --check frontend/js/app.js` — 통과
+- `node --check frontend/js/state.js` — 통과
+- `uv run pytest` — 62 passed
+- `uv run python -m compileall -q backend src tests` — 통과
+- `docker compose config` — 통과
+
 ## [v26.04.07] - 2026-04-14
 
 ### Background Task 공통화 및 프론트 모듈 분리

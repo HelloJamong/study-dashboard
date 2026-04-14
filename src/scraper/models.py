@@ -27,6 +27,11 @@ VIDEO_LECTURE_TYPES = {
     LectureType.MP4,
 }
 
+SUBMISSION_REQUIRED_TYPES = {
+    LectureType.ASSIGNMENT,
+    LectureType.QUIZ,
+}
+
 
 @dataclass
 class Course:
@@ -74,6 +79,12 @@ class LectureItem:
     def needs_watch(self) -> bool:
         return self.is_video and self.completion != "completed" and not self.is_upcoming
 
+    @property
+    def needs_submission(self) -> bool:
+        return (
+            self.lecture_type in SUBMISSION_REQUIRED_TYPES and self.completion != "completed" and not self.is_upcoming
+        )
+
 
 @dataclass
 class Week:
@@ -88,6 +99,14 @@ class Week:
     @property
     def pending_count(self) -> int:
         return sum(1 for lec in self.lectures if lec.needs_watch)
+
+    @property
+    def pending_assignment_count(self) -> int:
+        return sum(1 for lec in self.lectures if lec.lecture_type == LectureType.ASSIGNMENT and lec.needs_submission)
+
+    @property
+    def pending_quiz_count(self) -> int:
+        return sum(1 for lec in self.lectures if lec.lecture_type == LectureType.QUIZ and lec.needs_submission)
 
 
 @dataclass
@@ -111,3 +130,11 @@ class CourseDetail:
     @property
     def pending_video_count(self) -> int:
         return sum(1 for lec in self.all_video_lectures if lec.needs_watch)
+
+    @property
+    def pending_assignment_count(self) -> int:
+        return sum(week.pending_assignment_count for week in self.weeks)
+
+    @property
+    def pending_quiz_count(self) -> int:
+        return sum(week.pending_quiz_count for week in self.weeks)

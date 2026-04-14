@@ -1,4 +1,3 @@
-import sys
 from datetime import timedelta, timezone
 from pathlib import Path
 
@@ -20,17 +19,8 @@ def _load_credential(key: str) -> str:
 
 
 def _default_download_dir() -> str:
-    """OS별 기본 다운로드 경로를 반환한다."""
-    if sys.platform == "win32":
-        return str(Path.home() / "Downloads")
-    # Docker 컨테이너 환경: 호스트 /download 볼륨을 /download로 마운트한 경우 사용
-    if Path("/download").exists() and str(Path.home()) == "/root":
-        return "/download"
-    # Docker 컨테이너 환경: /data 볼륨이 마운트된 경우 사용
-    if Path("/data").exists() and str(Path.home()) == "/root":
-        return "/data/downloads"
-    # macOS / 일반 Linux
-    return str(Path.home() / "Downloads")
+    """다운로드 경로는 UI/DB 설정과 무관하게 컨테이너 내부 /download로 고정한다."""
+    return "/download"
 
 
 def _read_version() -> str:
@@ -107,7 +97,7 @@ class Config:
         cls.WHISPER_MODEL = db.get("WHISPER_MODEL", "base")
         cls.STT_LANGUAGE = db.get("STT_LANGUAGE", "ko")
         cls.DOWNLOAD_ENABLED = db.get("DOWNLOAD_ENABLED", "false")
-        cls.DOWNLOAD_DIR = db.get("DOWNLOAD_DIR", "")
+        cls.DOWNLOAD_DIR = _default_download_dir()
         cls.DOWNLOAD_RULE = normalize_download_rule(db.get("DOWNLOAD_RULE", "mp4"))
         cls.AUTO_DOWNLOAD_AFTER_PLAY = db.get("AUTO_DOWNLOAD_AFTER_PLAY", "false")
         cls.STT_ENABLED = db.get("STT_ENABLED", "")
@@ -135,8 +125,8 @@ class Config:
 
     @classmethod
     def get_download_dir(cls) -> str:
-        """저장된 경로가 없으면 OS 기본 다운로드 폴더를 반환한다."""
-        return cls.DOWNLOAD_DIR or _default_download_dir()
+        """다운로드 경로는 컨테이너 내부 /download로 고정한다."""
+        return _default_download_dir()
 
     @classmethod
     def get_download_rule(cls) -> str:
@@ -173,7 +163,8 @@ class Config:
             ai_enabled = False
 
         cls.DOWNLOAD_ENABLED = "true" if download_enabled else "false"
-        cls.DOWNLOAD_DIR = download_dir
+        fixed_download_dir = cls.get_download_dir()
+        cls.DOWNLOAD_DIR = fixed_download_dir
         cls.DOWNLOAD_RULE = normalize_download_rule(download_rule)
         cls.AUTO_DOWNLOAD_AFTER_PLAY = "true" if auto_download_after_play else "false"
         cls.STT_ENABLED = "true" if stt_enabled else "false"
@@ -184,7 +175,7 @@ class Config:
             cls.GEMINI_MODEL = gemini_model
 
         to_save: dict = {
-            "DOWNLOAD_DIR": download_dir,
+            "DOWNLOAD_DIR": fixed_download_dir,
             "DOWNLOAD_RULE": cls.DOWNLOAD_RULE,
             "DOWNLOAD_ENABLED": cls.DOWNLOAD_ENABLED,
             "AUTO_DOWNLOAD_AFTER_PLAY": cls.AUTO_DOWNLOAD_AFTER_PLAY,

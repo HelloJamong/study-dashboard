@@ -2,7 +2,7 @@
 다운로드 관련 UI.
 
 다운로드 진행률 화면을 제공한다.
-다운로드 경로는 설정(settings)에서 관리하며, Config에서 직접 읽는다.
+다운로드 경로는 Config의 고정 경로(/download)를 사용한다.
 """
 
 import asyncio

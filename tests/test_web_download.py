@@ -6,6 +6,7 @@ from backend.api.state import PlaybackProgress, app_state
 from backend.api.task_manager import task_manager
 from fastapi import HTTPException
 
+from src import event_log
 from src.config import Config
 from src.scraper.models import Course
 
@@ -43,7 +44,10 @@ def _seed_course() -> Course:
 
 
 @pytest.fixture(autouse=True)
-def reset_state(tmp_path):
+def reset_state(monkeypatch, tmp_path):
+    import src.db as db_module
+
+    monkeypatch.setattr(db_module, "_db_path", lambda: tmp_path / "app.db")
     _reset_app_state()
     Config.DOWNLOAD_DIR = str(tmp_path)
     Config.DOWNLOAD_ENABLED = "true"
@@ -85,6 +89,10 @@ async def test_start_download_creates_managed_task(monkeypatch, tmp_path):
     assert managed.result["download_rule"] == "mp4"
     assert managed.result["files"][0]["type"] == "mp4"
     assert called["course_name"] == "테스트 과목"
+    events = event_log.list_events(event_type="download", limit=10)
+    assert [event["action"] for event in events] == ["download_complete", "download_start"]
+    assert events[0]["status"] == "success"
+    assert event_log.is_timestamp_format(events[0]["created_at"])
 
 
 @pytest.mark.asyncio

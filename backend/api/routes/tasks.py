@@ -5,6 +5,7 @@ from backend.api.task_manager import ManagedTask, task_manager
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from src import event_log
 from src.config import Config
 
 router = APIRouter()
@@ -47,7 +48,7 @@ async def start_download(req: DownloadTaskRequest):
             managed.update(stage=stage, message=message, progress_pct=progress_pct)
 
         try:
-            return await download_lecture_media(
+            result = await download_lecture_media(
                 page=app_state.scraper._page,
                 lecture_url=req.lecture_url,
                 lecture_title=req.lecture_title,
@@ -57,9 +58,56 @@ async def start_download(req: DownloadTaskRequest):
                 rule=Config.get_download_rule(),
                 on_stage=on_stage,
             )
+            event_log.record_event(
+                event_type="download",
+                action="download_complete",
+                status="success",
+                actor_user_id=app_state.user_id or None,
+                target_type="lecture",
+                course_id=req.course_id,
+                course_name=course.long_name,
+                lecture_title=req.lecture_title,
+                lecture_url=req.lecture_url,
+                week_label=req.week_label,
+                message="다운로드가 완료되었습니다.",
+                metadata={"task_id": managed.id, "result": result},
+            )
+            return result
         except DownloadUnsupportedError as e:
             managed.update(status="failed", stage="unsupported", error=str(e), message=str(e))
+            event_log.record_event(
+                event_type="download",
+                action="download_unsupported",
+                status="failed",
+                actor_user_id=app_state.user_id or None,
+                target_type="lecture",
+                course_id=req.course_id,
+                course_name=course.long_name,
+                lecture_title=req.lecture_title,
+                lecture_url=req.lecture_url,
+                week_label=req.week_label,
+                error_code="unsupported",
+                error_message=str(e),
+                metadata={"task_id": managed.id},
+            )
             return {}
+        except Exception as e:
+            event_log.record_event(
+                event_type="download",
+                action="download_failed",
+                status="failed",
+                actor_user_id=app_state.user_id or None,
+                target_type="lecture",
+                course_id=req.course_id,
+                course_name=course.long_name,
+                lecture_title=req.lecture_title,
+                lecture_url=req.lecture_url,
+                week_label=req.week_label,
+                error_code=type(e).__name__,
+                error_message=str(e),
+                metadata={"task_id": managed.id},
+            )
+            raise
 
     managed = task_manager.create(
         "download",
@@ -71,6 +119,20 @@ async def start_download(req: DownloadTaskRequest):
             "week_label": req.week_label,
             "download_rule": Config.get_download_rule(),
         },
+    )
+    event_log.record_event(
+        event_type="download",
+        action="download_start",
+        status="started",
+        actor_user_id=app_state.user_id or None,
+        target_type="lecture",
+        course_id=req.course_id,
+        course_name=course.long_name,
+        lecture_title=req.lecture_title,
+        lecture_url=req.lecture_url,
+        week_label=req.week_label,
+        message="다운로드를 시작했습니다.",
+        metadata={"task_id": managed.id, "download_rule": Config.get_download_rule()},
     )
     return {"started": True, "task_id": managed.id}
 
@@ -93,8 +155,22 @@ async def get_task(task_id: str):
 @router.post("/{task_id}/cancel")
 async def cancel_task(task_id: str):
     _require_auth()
+    task_before = task_manager.get(task_id)
     cancelled = await task_manager.cancel(task_id)
     if not cancelled:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
     task = task_manager.get(task_id)
+    if task_before and task_before.kind == "download":
+        event_log.record_event(
+            event_type="download",
+            action="download_cancel",
+            status="cancelled",
+            actor_user_id=app_state.user_id or None,
+            course_id=task_before.metadata.get("course_id"),
+            course_name=task_before.metadata.get("course_name"),
+            lecture_title=task_before.metadata.get("lecture_title"),
+            week_label=task_before.metadata.get("week_label"),
+            message="다운로드 취소 요청",
+            metadata={"task_id": task_id},
+        )
     return task.to_dict() if task else {"cancelled": True}

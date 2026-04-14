@@ -135,8 +135,8 @@ docker compose up --build
 학번/비밀번호는 자동 로그인 방지를 위해 DB에 저장하지 않고 현재 세션 메모리에만 유지하며,
 API 키/텔레그램 토큰은 암호화되어 DB에 저장됩니다.
 
-Docker 실행 시 다운로드 기본 경로는 컨테이너 `/download`이며, 기본 compose 설정은 호스트 `/download`를 마운트합니다.
-다른 호스트 경로를 쓰려면 `DOWNLOAD_HOST_DIR=/원하는/경로 docker compose up --build`처럼 실행하세요.
+Docker 실행 시 다운로드 경로는 컨테이너 `/download`로 고정됩니다.
+기본 compose 설정은 저장소의 `./download` 폴더를 컨테이너 `/download`에 마운트합니다.
 
 ### Whisper 모델 크기
 

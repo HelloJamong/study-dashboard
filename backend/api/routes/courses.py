@@ -41,6 +41,8 @@ async def get_courses():
                 "term": course.term,
                 "total_videos": detail.total_video_count if detail else 0,
                 "pending_videos": detail.pending_video_count if detail else 0,
+                "pending_assignments": detail.pending_assignment_count if detail else 0,
+                "pending_quizzes": detail.pending_quiz_count if detail else 0,
             }
         )
     return result
@@ -50,13 +52,17 @@ async def get_courses():
 async def get_stats():
     _require_auth()
 
-    total = sum(
-        d.total_video_count for d in app_state.details if d
-    )
-    completed = sum(
-        d.total_video_count - d.pending_video_count for d in app_state.details if d
-    )
-    return {"total_videos": total, "completed_videos": completed}
+    total = sum(d.total_video_count for d in app_state.details if d)
+    completed = sum(d.total_video_count - d.pending_video_count for d in app_state.details if d)
+    pending_assignments = sum(d.pending_assignment_count for d in app_state.details if d)
+    pending_quizzes = sum(d.pending_quiz_count for d in app_state.details if d)
+    return {
+        "total_videos": total,
+        "completed_videos": completed,
+        "pending_videos": total - completed,
+        "pending_assignments": pending_assignments,
+        "pending_quizzes": pending_quizzes,
+    }
 
 
 @router.get("/terms")
@@ -136,6 +142,8 @@ async def get_course_detail(course_id: str):
                 "week_number": week.week_number,
                 "lectures": lectures,
                 "pending_count": week.pending_count,
+                "pending_assignment_count": week.pending_assignment_count,
+                "pending_quiz_count": week.pending_quiz_count,
             }
         )
 

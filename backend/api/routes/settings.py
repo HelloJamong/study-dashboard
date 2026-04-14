@@ -1,9 +1,8 @@
-
 from backend.api.state import app_state
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from src import db
+from src import db, event_log
 from src.config import Config, normalize_download_rule
 from src.crypto import encrypt
 
@@ -22,7 +21,7 @@ async def get_settings():
     _require_auth()
     return {
         "DOWNLOAD_ENABLED": Config.DOWNLOAD_ENABLED,
-        "DOWNLOAD_DIR": Config.DOWNLOAD_DIR,
+        "DOWNLOAD_DIR": Config.get_download_dir(),
         "DOWNLOAD_RULE": Config.get_download_rule(),
         "AUTO_DOWNLOAD_AFTER_PLAY": Config.AUTO_DOWNLOAD_AFTER_PLAY,
         "STT_ENABLED": Config.STT_ENABLED,
@@ -41,7 +40,6 @@ async def get_settings():
 class SettingsUpdate(BaseModel):
     DOWNLOAD_ENABLED: str | None = None
     DOWNLOAD_RULE: str | None = None
-    DOWNLOAD_DIR: str | None = None
     AUTO_DOWNLOAD_AFTER_PLAY: str | None = None
     STT_ENABLED: str | None = None
     STT_LANGUAGE: str | None = None
@@ -77,7 +75,31 @@ async def update_settings(body: SettingsUpdate):
         to_save["AI_ENABLED"] = "false"
 
     if to_save:
-        db.set_many(to_save)
-        Config.load()
+        keys = sorted(to_save)
+        before = event_log.setting_snapshot(keys)
+        try:
+            db.set_many(to_save)
+            Config.load()
+        except Exception as e:
+            event_log.record_event(
+                event_type="settings",
+                action="update",
+                status="failed",
+                actor_user_id=app_state.user_id or None,
+                error_code=type(e).__name__,
+                error_message=str(e),
+                metadata={"changed_keys": keys, "before": before, "attempted": to_save},
+            )
+            raise
+
+        after = event_log.setting_snapshot(keys)
+        event_log.record_event(
+            event_type="settings",
+            action="update",
+            status="success",
+            actor_user_id=app_state.user_id or None,
+            message="설정이 저장되었습니다.",
+            metadata={"changed_keys": event_log.changed_keys(before, after), "before": before, "after": after},
+        )
 
     return {"success": True}

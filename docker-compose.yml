@@ -22,9 +22,7 @@ services:
       # 암호화 키 — 없으면 Docker가 디렉토리로 생성하지만 crypto.py가 자동 처리
       - ./.secret_key:/app/.secret_key
       - ./data:/data
-      # 다운로드 저장소 — 기본적으로 호스트 /download 를 컨테이너 /download 로 마운트한다.
-      # 필요 시 DOWNLOAD_HOST_DIR=/원하는/경로 로 override 가능.
-      #- ${DOWNLOAD_HOST_DIR:-/download}:/download
+      # 다운로드 저장소 — 앱 다운로드 경로는 컨테이너 내부 /download 로 고정한다.
       - ./download:/download
       - ./logs:/app/logs
       # 캐시 (재빌드 시 재다운로드 방지)

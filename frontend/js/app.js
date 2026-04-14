@@ -19,6 +19,7 @@ function navigate(page) {
   $$('.nav-item').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.page === activePage);
   });
+  updateLogMenuState(activePage === 'logs');
 
   // 페이지별 초기화
   if (page === 'courses') {
@@ -28,6 +29,7 @@ function navigate(page) {
   }
   if (page === 'settings') loadSettings();
   if (page === 'dashboard') loadStats();
+  if (page === 'logs') loadLogs();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -247,15 +249,18 @@ async function loadStats() {
       const courses = await api('GET', '/api/courses');
       state.courses = courses;
       const s2 = await api('GET', '/api/courses/stats');
-      $('#stat-completed').textContent = s2.completed_videos;
-      $('#stat-total').textContent = s2.total_videos;
-      $('#stat-pending').textContent = s2.total_videos - s2.completed_videos;
+      renderStats(s2);
       return;
     }
-    $('#stat-completed').textContent = s.completed_videos;
-    $('#stat-total').textContent = s.total_videos;
-    $('#stat-pending').textContent = s.total_videos - s.completed_videos;
+    renderStats(s);
   } catch {}
+}
+
+function renderStats(stats) {
+  const pendingVideos = stats.pending_videos ?? (stats.total_videos - stats.completed_videos);
+  $('#stat-pending-videos').textContent = pendingVideos;
+  $('#stat-pending-assignments').textContent = stats.pending_assignments ?? 0;
+  $('#stat-pending-quizzes').textContent = stats.pending_quizzes ?? 0;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -360,9 +365,10 @@ function renderCourseCards(courses) {
   }
 
   courses.forEach(course => {
-    const pending = course.pending_videos;
-    const total = course.total_videos;
-    const pct = total > 0 ? Math.round((total - pending) / total * 100) : 0;
+    const pendingVideos = course.pending_videos ?? 0;
+    const pendingAssignments = course.pending_assignments ?? 0;
+    const pendingQuizzes = course.pending_quizzes ?? 0;
+    const hasPending = pendingVideos + pendingAssignments + pendingQuizzes > 0;
 
     const card = document.createElement('div');
     card.className = 'bg-[#1E293B] rounded-2xl border border-slate-700 p-5 cursor-pointer hover:border-indigo-500/50 transition-all';
@@ -376,17 +382,19 @@ function renderCourseCards(courses) {
           <p class="text-xs text-slate-500 mt-0.5">${esc(course.term)}</p>
         </div>
         <div class="shrink-0 text-right">
-          <span class="text-lg font-black ${pending > 0 ? 'text-amber-400' : 'text-emerald-400'}">${pending}</span>
-          <span class="text-slate-500 text-xs"> 미수강</span>
+          <span class="text-lg font-black ${hasPending ? 'text-amber-400' : 'text-emerald-400'}">${hasPending ? '진행 필요' : '완료'}</span>
         </div>
       </div>
-      <div class="mt-4">
-        <div class="flex justify-between text-xs text-slate-500 mb-1.5">
-          <span>진행률</span><span>${total - pending} / ${total}</span>
-        </div>
-        <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-          <div class="h-full ${pct === 100 ? 'bg-emerald-500' : 'bg-indigo-500'} rounded-full transition-all" style="width:${pct}%"></div>
-        </div>
+      <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 border border-slate-700 rounded-full">
+          <i class="fa-solid fa-video text-blue-400"></i> 미시청 영상 ${pendingVideos}개
+        </span>
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 border border-slate-700 rounded-full">
+          <i class="fa-solid fa-clipboard-list text-emerald-400"></i> 과제 ${pendingAssignments}개
+        </span>
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 border border-slate-700 rounded-full">
+          <i class="fa-solid fa-circle-question text-amber-400"></i> 퀴즈 ${pendingQuizzes}개
+        </span>
       </div>
     `;
     const openDetail = () => loadCourseDetail(course.id, course.name);
@@ -697,6 +705,172 @@ async function openSummary(summaryId, lectureTitle, weekLabel) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// 로그 조회
+// ═══════════════════════════════════════════════════════════════
+const LOG_TYPE_LABELS = {
+  '': '전체 로그',
+  auth: '로그인/로그아웃',
+  settings: '설정 변경',
+  player: '영상 재생',
+  download: '다운로드',
+};
+
+const LOG_EVENT_LABELS = {
+  auth: '인증',
+  settings: '설정',
+  player: '재생',
+  download: '다운로드',
+};
+
+const LOG_ACTION_LABELS = {
+  login: '로그인',
+  logout: '로그아웃',
+  update: '설정 변경',
+  play_start: '재생 시작',
+  play_complete: '재생 완료',
+  play_failed: '재생 실패',
+  play_stop: '재생 중지',
+  play_stop_request: '중지 요청',
+  download_start: '다운로드 시작',
+  download_complete: '다운로드 완료',
+  download_failed: '다운로드 실패',
+  download_unsupported: '다운로드 미지원',
+  download_cancel: '다운로드 취소',
+};
+
+function updateLogMenuState(open = state.currentPage === 'logs') {
+  const submenu = $('#log-submenu');
+  const caret = $('#log-menu-caret');
+  if (submenu) submenu.classList.toggle('hidden', !open);
+  if (caret) caret.classList.toggle('rotate-180', open);
+  $$('.log-filter').forEach(btn => {
+    btn.classList.toggle('active', (btn.dataset.logType || '') === state.selectedLogType);
+  });
+}
+
+function statusBadgeClass(status) {
+  if (['success', 'completed'].includes(status)) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  if (['failed', 'error'].includes(status)) return 'bg-red-500/10 text-red-400 border-red-500/20';
+  if (['started', 'running', 'requested'].includes(status)) return 'bg-sky-500/10 text-sky-400 border-sky-500/20';
+  if (['cancelled', 'cancelling'].includes(status)) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  return 'bg-slate-700/50 text-slate-300 border-slate-600';
+}
+
+function setText(el, text) {
+  el.textContent = text ?? '';
+  return el;
+}
+
+function eventTargetText(event) {
+  return [
+    event.course_name,
+    event.week_label,
+    event.lecture_title,
+    event.target_type && event.target_id ? `${event.target_type}:${event.target_id}` : '',
+  ].filter(Boolean).join(' · ') || '—';
+}
+
+function eventMessageText(event) {
+  return event.error_message || event.message || event.error_code || '—';
+}
+
+function renderLogRows(events) {
+  const list = $('#logs-list');
+  const empty = $('#logs-empty');
+  const count = $('#logs-count');
+  list.innerHTML = '';
+  count.textContent = `${events.length}개`;
+  empty.classList.toggle('hidden', events.length !== 0);
+
+  events.forEach(event => {
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-slate-800/40 align-top';
+
+    const time = document.createElement('td');
+    time.className = 'px-4 py-3 text-xs text-slate-400 whitespace-nowrap';
+    setText(time, event.created_at);
+
+    const type = document.createElement('td');
+    type.className = 'px-4 py-3 whitespace-nowrap';
+    const typeWrap = document.createElement('div');
+    typeWrap.className = 'flex flex-col gap-0.5';
+    const eventLabel = document.createElement('span');
+    eventLabel.className = 'text-sm font-semibold text-slate-200';
+    setText(eventLabel, LOG_EVENT_LABELS[event.event_type] || event.event_type);
+    const actionLabel = document.createElement('span');
+    actionLabel.className = 'text-xs text-slate-500';
+    setText(actionLabel, LOG_ACTION_LABELS[event.action] || event.action);
+    typeWrap.append(eventLabel, actionLabel);
+    type.appendChild(typeWrap);
+
+    const status = document.createElement('td');
+    status.className = 'px-4 py-3 whitespace-nowrap';
+    const badge = document.createElement('span');
+    badge.className = `inline-flex px-2 py-0.5 rounded-full border text-xs font-medium ${statusBadgeClass(event.status)}`;
+    setText(badge, event.status);
+    status.appendChild(badge);
+
+    const target = document.createElement('td');
+    target.className = 'px-4 py-3 text-xs text-slate-300 min-w-[220px]';
+    setText(target, eventTargetText(event));
+
+    const message = document.createElement('td');
+    message.className = 'px-4 py-3 text-xs text-slate-300';
+    const msg = document.createElement('p');
+    msg.className = event.error_message ? 'text-red-300' : 'text-slate-300';
+    setText(msg, eventMessageText(event));
+    message.appendChild(msg);
+    if (event.log_path) {
+      const logPath = document.createElement('p');
+      logPath.className = 'mt-1 text-[11px] text-slate-500 break-all';
+      setText(logPath, `로그 파일: ${event.log_path}`);
+      message.appendChild(logPath);
+    }
+
+    const actor = document.createElement('td');
+    actor.className = 'px-4 py-3 text-xs text-slate-400 whitespace-nowrap';
+    setText(actor, event.actor_user_id || '—');
+
+    tr.append(time, type, status, target, message, actor);
+    list.appendChild(tr);
+  });
+}
+
+async function loadLogs() {
+  const loading = $('#logs-loading');
+  const list = $('#logs-list');
+  const empty = $('#logs-empty');
+  const label = LOG_TYPE_LABELS[state.selectedLogType] || '로그';
+  $('#logs-title').textContent = label;
+  $('#logs-subtitle').textContent = state.selectedLogType
+    ? `${label} 이벤트만 조회합니다.`
+    : '전체 로그를 조회합니다.';
+  updateLogMenuState(true);
+  loading.classList.remove('hidden');
+  loading.classList.add('flex');
+  empty.classList.add('hidden');
+  list.innerHTML = '';
+
+  try {
+    const params = new URLSearchParams({ limit: '100' });
+    if (state.selectedLogType) params.set('event_type', state.selectedLogType);
+    const payload = await api('GET', `/api/logs?${params.toString()}`);
+    renderLogRows(payload.events || []);
+  } catch (err) {
+    list.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-sm text-red-400">${esc(err.message)}</td></tr>`;
+    $('#logs-count').textContent = '';
+  } finally {
+    loading.classList.add('hidden');
+    loading.classList.remove('flex');
+  }
+}
+
+function selectLogType(type) {
+  state.selectedLogType = type || '';
+  navigate('logs');
+}
+
 // 강의 상세에서 목록으로 돌아가기
 $('#btn-back-courses').addEventListener('click', () => {
   navigate('courses');
@@ -956,6 +1130,15 @@ $('#btn-schedule-apply').addEventListener('click', async () => {
 $$('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => navigate(btn.dataset.page));
 });
+
+$$('.log-filter').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectLogType(btn.dataset.logType || '');
+  });
+});
+
+$('#btn-refresh-logs').addEventListener('click', () => loadLogs());
 
 // ═══════════════════════════════════════════════════════════════
 // 초기화

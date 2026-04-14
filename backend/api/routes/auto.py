@@ -145,15 +145,11 @@ async def _run_auto_cycle(schedule_hours: list[int]) -> None:
         except Exception as e:
             app_state.playback.status = "error"
             app_state.playback.error = str(e)
-            app_state.playback.log_path = _write_playback_log(
-                lec.title, lec.full_url, str(e), log_buffer
-            )
+            app_state.playback.log_path = _write_playback_log(lec.title, lec.full_url, str(e), log_buffer)
         finally:
             app_state.is_playing = False
             with suppress(Exception):
-                await app_state.scraper._page.goto(
-                    "about:blank", wait_until="domcontentloaded", timeout=5000
-                )
+                await app_state.scraper._page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
 
         await asyncio.sleep(1)
 

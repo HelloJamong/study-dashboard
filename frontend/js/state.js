@@ -9,6 +9,7 @@ export const state = {
   autoEnabled: false,
   currentTerm: '',
   selectedTerm: null,   // null = 현재 학기
+  selectedLogType: '',
   currentCourseId: '',
   currentCourseName: '',
   currentSummaryId: '',
@@ -16,7 +17,6 @@ export const state = {
   settings: {
     DOWNLOAD_ENABLED: 'false',
     DOWNLOAD_RULE: 'mp4',
-    DOWNLOAD_DIR: '',
     AUTO_DOWNLOAD_AFTER_PLAY: 'false',
     STT_ENABLED: 'false',
     AI_ENABLED: 'false',

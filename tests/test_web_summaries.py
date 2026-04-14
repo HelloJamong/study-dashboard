@@ -80,6 +80,47 @@ async def test_course_detail_exposes_generated_summary(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_courses_payload_exposes_submission_counts():
+    course, lecture = _seed_course(completion="incomplete")
+    assignment = LectureItem(
+        title="과제",
+        item_url="/courses/42/assignments/1",
+        lecture_type=LectureType.ASSIGNMENT,
+        completion="incomplete",
+    )
+    quiz = LectureItem(
+        title="퀴즈",
+        item_url="/courses/42/quizzes/1",
+        lecture_type=LectureType.QUIZ,
+        completion="incomplete",
+    )
+    done_quiz = LectureItem(
+        title="완료 퀴즈",
+        item_url="/courses/42/quizzes/2",
+        lecture_type=LectureType.QUIZ,
+        completion="completed",
+    )
+    app_state.details = [
+        CourseDetail(
+            course=course,
+            course_name=course.long_name,
+            professors="교수",
+            weeks=[Week(title="1주차", week_number=1, lectures=[lecture, assignment, quiz, done_quiz])],
+        )
+    ]
+
+    courses = await courses_route.get_courses()
+    stats = await courses_route.get_stats()
+
+    assert courses[0]["pending_videos"] == 1
+    assert courses[0]["pending_assignments"] == 1
+    assert courses[0]["pending_quizzes"] == 1
+    assert stats["pending_videos"] == 1
+    assert stats["pending_assignments"] == 1
+    assert stats["pending_quizzes"] == 1
+
+
+@pytest.mark.asyncio
 async def test_get_summary_reads_markdown_safely(monkeypatch, tmp_path):
     monkeypatch.setattr(summary_store, "summaries_dir", lambda: tmp_path / "summaries")
     course, lecture = _seed_course()

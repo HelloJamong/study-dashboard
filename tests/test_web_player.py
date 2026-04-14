@@ -4,6 +4,7 @@ import pytest
 from backend.api.routes import player as player_route
 from backend.api.state import PlaybackProgress, app_state
 
+from src import event_log
 from src.player.background_player import PlaybackState
 from src.scraper.models import Course, CourseDetail, LectureItem, LectureType, Week
 
@@ -54,7 +55,10 @@ def _seed_course() -> tuple[Course, LectureItem]:
 
 
 @pytest.fixture(autouse=True)
-def reset_state():
+def reset_state(monkeypatch, tmp_path):
+    import src.db as db_module
+
+    monkeypatch.setattr(db_module, "_db_path", lambda: tmp_path / "app.db")
     _reset_app_state()
     yield
     _reset_app_state()
@@ -88,6 +92,10 @@ async def test_start_play_marks_completed_lecture(monkeypatch):
     assert app_state.playback.status == "completed"
     assert app_state.playback.ended is True
     assert lecture.completion == "completed"
+    events = event_log.list_events(event_type="player", limit=10)
+    assert [event["action"] for event in events] == ["play_complete", "play_start"]
+    assert events[0]["status"] == "success"
+    assert event_log.is_timestamp_format(events[0]["created_at"])
 
 
 @pytest.mark.asyncio
@@ -121,3 +129,7 @@ async def test_start_play_preserves_playback_error(monkeypatch):
     assert status["course_id"] == course.id
     assert status["lecture_url"] == lecture.full_url
     assert lecture.completion == "incomplete"
+    events = event_log.list_events(event_type="player", status="failed", limit=10)
+    assert events[0]["action"] == "play_failed"
+    assert events[0]["error_message"] == "비디오 프레임을 찾지 못했습니다."
+    assert events[0]["log_path"] == "/tmp/web_play.log"

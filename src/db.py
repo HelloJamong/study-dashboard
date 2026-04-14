@@ -22,6 +22,12 @@ def _connect() -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
+    return conn
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """앱에서 사용하는 SQLite 테이블을 생성한다."""
     conn.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key        TEXT PRIMARY KEY,
@@ -29,7 +35,35 @@ def _connect() -> sqlite3.Connection:
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
-    return conn
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS event_logs (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id       TEXT NOT NULL UNIQUE,
+            created_at     TEXT NOT NULL,
+            actor_user_id  TEXT,
+            session_id     TEXT,
+            event_type     TEXT NOT NULL,
+            action         TEXT NOT NULL,
+            status         TEXT NOT NULL,
+            target_type    TEXT,
+            target_id      TEXT,
+            course_id      TEXT,
+            course_name    TEXT,
+            lecture_title  TEXT,
+            lecture_url    TEXT,
+            week_label     TEXT,
+            message        TEXT,
+            error_code     TEXT,
+            error_message  TEXT,
+            log_path       TEXT,
+            metadata_json  TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_event_logs_created_at ON event_logs(created_at DESC)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_event_logs_event_type_created_at ON event_logs(event_type, created_at DESC)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_event_logs_status_created_at ON event_logs(status, created_at DESC)")
 
 
 def init() -> None:
@@ -41,9 +75,7 @@ def init() -> None:
 def get(key: str, default: str = "") -> str:
     """키에 해당하는 값을 반환한다. 없으면 default 반환."""
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT value FROM settings WHERE key = ?", (key,)
-        ).fetchone()
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
 
 
@@ -75,4 +107,3 @@ def set_many(pairs: dict) -> None:
             """,
             [(k, v) for k, v in pairs.items()],
         )
-

@@ -128,5 +128,3 @@ def _summarize_gemini(api_key: str, model: str, prompt: str) -> str:
         ),
     )
     return response.text
-
-

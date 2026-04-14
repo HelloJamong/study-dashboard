@@ -2,9 +2,9 @@
 
 이 문서는 `study-dashboard`가 기존 `study-helper` 핵심 로직을 웹서비스로 완전히 연결하기 위해 남은 작업을 추적하는 체크리스트입니다.
 
-- 기준일: 2026-04-13
-- 현재 웹 구현 범위: 로그인, 과목/강의 목록, 백그라운드 재생 시작/중지, 설정 저장
-- 현재 미구현 핵심 범위: 자동 모드, 다운로드, STT, AI 요약, 요약 대시보드, 학기 선택
+- 기준일: 2026-04-14
+- 현재 웹 구현 범위: 로그인, 과목/강의 목록, 대시보드 미시청/과제/퀴즈 통계, 백그라운드 재생 시작/중지, 다운로드 task, 자동 재생 모드, 요약 상세 조회, 설정 저장
+- 현재 미구현 핵심 범위: STT 웹 task, AI 요약 생성 웹 task, 요약 목록 대시보드, 텔레그램 웹 전송/테스트, API 보안/CORS 추가 정리, 수동 브라우저 검증
 
 ## 체크 규칙
 
@@ -16,6 +16,24 @@
   - 프론트 수동 확인
   - `uv run pytest`
   - `uv run ruff check .`
+
+
+## 현재 남은 구현 필요 항목 요약
+
+- [ ] `/api/courses/stats` 백엔드 lazy loading/lock/error 상태 개선
+- [ ] 브라우저 기반 수동 검증: 재생 성공/실패/중지, 다운로드 mp4/mp3/both, 자동 모드 ON/OFF
+- [ ] CORS 정책과 `GET /api/player/status` 공개 여부 정리
+- [ ] 다운로드 완료 파일 경로 표시
+- [ ] STT 웹 task/API/UI 연결
+- [ ] AI 요약 생성 웹 task/API/UI 연결 및 `SUMMARY_PROMPT_EXTRA` 웹 textarea 추가
+- [ ] 요약 목록 대시보드(`GET /api/summaries` 포함) 구현
+- [ ] 자동 모드 pipeline에 다운로드/STT/요약/텔레그램 step 연결
+- [ ] 전체 학기 과목 조회/전환 API와 UI 완성
+- [ ] 텔레그램 연결 테스트/요약 전송/자동 삭제 웹 연결
+- [ ] task 저장소 영속화/오래된 task 정리/동시 실행 정책 결정
+- [ ] README의 React/Vite 등 기술 스택 설명을 실제 구현과 일치시키기
+- [ ] 운영 정책: singleton state, uvicorn workers, 프로덕션 `--reload` 제거, volume/secret 문서화
+
 
 ---
 
@@ -41,6 +59,37 @@
   - 관련 API: `GET /api/settings`, `PUT /api/settings`
 - [x] ~~Docker Compose 기반 backend/frontend 실행 구조 구현~~
   - 관련 파일: `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`
+
+
+## 0.1 2026-04-14 대시보드/다운로드 경로 변경 완료
+
+- [x] ~~메인 대시보드에서 전체 강의 완료/전체 표시 제거~~
+- [x] ~~대시보드에 제출 필요 과제 전체 수량 표시~~
+- [x] ~~대시보드에 제출 필요 퀴즈 전체 수량 표시~~
+- [x] ~~대시보드에 미시청 영상 전체 수량 표시~~
+- [x] ~~강의 목록에서 진행률 막대 제거~~
+- [x] ~~강의 목록 과목 카드에 `미시청 영상 n개 / 과제 n개 / 퀴즈 n개` 표시~~
+- [x] ~~다운로드 경로 선택 메뉴와 입력 기능 제거~~
+- [x] ~~다운로드 경로를 Config/API/CLI에서 `/download`로 고정~~
+- [x] ~~`docker-compose.yml`에서 `./download:/download` 마운트 명시~~
+- [x] ~~과거 DB에 저장된 `DOWNLOAD_DIR` 무시 정책 테스트 추가~~
+
+## 0.2 2026-04-14 DB 행위 로그 구현 완료
+
+- [x] ~~`event_logs` SQLite 테이블 생성~~
+- [x] ~~로그 타임스탬프를 `YYYY-MM-DD HH:mm:ss` 형식으로 저장~~
+- [x] ~~로그 저장 실패가 원 기능을 막지 않는 best-effort 기록 함수 구현~~
+- [x] ~~민감정보 키(`password`, `token`, `api_key`, `secret` 등) metadata 마스킹~~
+- [x] ~~로그인 성공/실패 로그 저장~~
+- [x] ~~로그아웃 로그 저장~~
+- [x] ~~설정 변경 성공/실패 로그 저장 및 민감 설정값 마스킹~~
+- [x] ~~영상 재생 시작/성공/실패/중지 로그 저장~~
+- [x] ~~다운로드 시작/성공/실패/미지원/취소 로그 저장~~
+- [x] ~~`GET /api/logs` 조회 API 추가~~
+- [x] ~~좌측 메뉴바에 로그 조회 드롭다운 추가~~
+- [x] ~~전체/로그인·로그아웃/설정 변경/영상 재생/다운로드 로그 웹 조회 페이지 추가~~
+- [x] ~~행위 로그 단위/라우트 테스트 추가~~
+
 
 ---
 
@@ -72,7 +121,8 @@
 - [x] ~~재생 완료 후 `/api/courses/stats`가 최신 완료/미수강 수를 반환하도록 갱신~~
 - [x] ~~프론트에서 재생 완료 감지 후 통계 카드 자동 refresh~~
 - [x] ~~프론트에서 재생 완료 감지 후 강의 목록/상세 패널 자동 refresh 또는 stale 표시~~
-- [ ] 완료 갱신 실패 시 사용자가 수동 새로고침하도록 안내
+- [x] ~~완료 갱신 실패 시 사용자가 수동 새로고침하도록 안내~~
+  - 근거: `refresh_recommended` 응답과 대시보드 완료 메시지 안내
 
 ### 1.4 웹 재생 로그
 
@@ -89,9 +139,11 @@
 - [ ] 재생 완료 후 통계 갱신 확인
 - [ ] 재생 완료 후 강의 목록 완료 표시 확인
 - [x] ~~`uv run pytest` 통과~~
-  - 2026-04-13: `36 passed`
+  - 2026-04-14: `62 passed`
 - [x] ~~`uv run ruff check .` 통과~~
-  - 2026-04-13: `All checks passed!`
+  - 2026-04-14: `All checks passed!`
+- [x] ~~`uv run ruff format --check .` 통과~~
+  - 2026-04-14: `64 files already formatted`
 
 ---
 
@@ -129,14 +181,14 @@
 
 ### 3.1 Settings API 보호
 
-- [ ] `GET /api/settings`에 인증 체크 추가
-- [ ] `PUT /api/settings`에 인증 체크 추가
-- [ ] 인증 실패 시 401 반환
-- [ ] 민감값은 계속 GET 응답에서 제외
-- [ ] API key/token placeholder 정책 정리
-  - 저장된 값은 표시하지 않음
-  - 변경 시에만 새 값 입력
-  - 빈 값 전송 시 기존 민감값 유지 여부 명확화
+- [x] ~~`GET /api/settings`에 인증 체크 추가~~
+- [x] ~~`PUT /api/settings`에 인증 체크 추가~~
+- [x] ~~인증 실패 시 401 반환~~
+- [x] ~~민감값은 계속 GET 응답에서 제외~~
+- [x] ~~API key/token placeholder 정책 정리~~
+  - [x] ~~저장된 값은 표시하지 않음~~
+  - [x] ~~변경 시에만 새 값 입력~~
+  - [x] ~~빈 값 전송 시 기존 민감값 유지 여부 명확화~~
 
 ### 3.2 Player API 보호
 
@@ -144,7 +196,7 @@
 - [ ] `GET /api/player/status`의 공개 여부 결정
   - 로컬 단일 사용자 서비스라면 공개 가능
   - 외부 노출 가능성이 있으면 인증 요구
-- [ ] `POST /api/player/play`는 현재 인증 체크 유지
+- [x] ~~`POST /api/player/play`는 현재 인증 체크 유지~~
 
 ### 3.3 CORS 정책 정리
 
@@ -169,18 +221,18 @@
 
 ### 4.1 과목 카드 렌더링 개선
 
-- [ ] `renderCourseCards()`에서 `innerHTML` 직접 삽입 제거 또는 escape 적용
-- [ ] 과목명 `course.name`을 `textContent`로 삽입
-- [ ] 학기명 `course.term`을 `textContent`로 삽입
+- [x] ~~`renderCourseCards()`에서 `innerHTML` 직접 삽입 제거 또는 escape 적용~~
+- [x] ~~과목명 `course.name`을 `textContent`로 삽입 또는 escape 적용~~
+- [x] ~~학기명 `course.term`을 `textContent`로 삽입 또는 escape 적용~~
 - [ ] 숫자 값은 숫자로 검증 후 렌더링
 
 ### 4.2 강의 상세 렌더링 개선
 
-- [ ] `loadCourseDetail()`의 week/lecture 렌더링에서 `innerHTML` 직접 삽입 제거 또는 escape 적용
-- [ ] `week.title`을 `textContent`로 삽입
-- [ ] `lec.title`을 `textContent`로 삽입
-- [ ] `lec.duration`을 `textContent`로 삽입
-- [ ] `data-*` 속성은 문자열 template이 아니라 `element.dataset`으로 할당
+- [x] ~~`loadCourseDetail()`의 week/lecture 렌더링에서 `innerHTML` 직접 삽입 제거 또는 escape 적용~~
+- [x] ~~`week.title`을 `textContent`로 삽입 또는 escape 적용~~
+- [x] ~~`lec.title`을 `textContent`로 삽입~~
+- [x] ~~`lec.duration`을 `textContent`로 삽입~~
+- [x] ~~`data-*` 속성은 문자열 template이 아니라 `element.dataset`으로 할당~~
 
 ### 4.3 검증
 
@@ -197,35 +249,35 @@
 
 ### 5.1 백엔드 다운로드 API 설계
 
-- [ ] 긴 작업 처리를 위한 task 모델 설계
+- [x] ~~긴 작업 처리를 위한 task 모델 설계~~
   - 예: `TaskState`, `TaskProgress`, `TaskResult`
-- [ ] `POST /api/tasks/download` 또는 `POST /api/lectures/download` 추가
-- [ ] `GET /api/tasks/{task_id}` 상태 조회 API 추가
-- [ ] `POST /api/tasks/{task_id}/cancel` 취소 API 추가 검토
-- [ ] 다운로드 진행률 저장
-  - downloaded bytes
-  - total bytes
-  - percent
-  - current step
-  - error
+- [x] ~~`POST /api/tasks/download` 또는 `POST /api/lectures/download` 추가~~
+- [x] ~~`GET /api/tasks/{task_id}` 상태 조회 API 추가~~
+- [x] ~~`POST /api/tasks/{task_id}/cancel` 취소 API 추가 검토~~
+- [x] ~~다운로드 진행률 저장~~
+  - [ ] downloaded bytes
+  - [ ] total bytes
+  - [x] ~~percent~~
+  - [x] ~~current step~~
+  - [x] ~~error~~
 - [ ] 동시에 여러 다운로드 허용 여부 결정
 
 ### 5.2 기존 다운로드 엔진 재사용
 
-- [ ] `src/ui/download.py`의 Rich UI 의존 로직과 순수 pipeline 로직 분리
-- [ ] `extract_video_url()` 웹 API 경로에서 재사용
-- [ ] `download_video_with_browser()` 웹 API 경로에서 재사용
-- [ ] 다운로드 실패 시 로그 저장
-- [ ] learningx 다운로드 미지원 케이스를 웹 UI에 표시
+- [x] ~~`src/ui/download.py`의 Rich UI 의존 로직과 순수 pipeline 로직 분리~~
+- [x] ~~`extract_video_url()` 웹 API 경로에서 재사용~~
+- [x] ~~`download_video_with_browser()` 웹 API 경로에서 재사용~~
+- [x] ~~다운로드 실패 시 DB 행위 로그 저장~~
+- [x] ~~learningx 다운로드 미지원 케이스를 웹 UI에 표시~~
 
 ### 5.3 프론트 다운로드 UI
 
-- [ ] 강의 row에 다운로드 버튼 추가
-- [ ] 다운로드 진행률 UI 추가
+- [x] ~~강의 row에 다운로드 버튼 추가~~
+- [x] ~~다운로드 진행률 UI 추가~~
 - [ ] 다운로드 완료 파일 경로 표시
-- [ ] 다운로드 실패 메시지 표시
-- [ ] 다운로드 중 중복 클릭 방지
-- [ ] 다운로드 설정(`DOWNLOAD_RULE`, `DOWNLOAD_DIR`)과 UI 동작 연결
+- [x] ~~다운로드 실패 메시지 표시~~
+- [x] ~~다운로드 중 중복 클릭 방지~~
+- [x] ~~다운로드 설정(`DOWNLOAD_RULE`)과 UI 동작 연결 (`DOWNLOAD_DIR`은 `/download` 고정)~~
 
 ### 5.4 검증
 
@@ -234,8 +286,10 @@
 - [ ] 영상+음성 다운로드 확인
 - [ ] URL 추출 실패 케이스 UI 표시 확인
 - [ ] 다운로드 중 브라우저/페이지 상태 충돌 여부 확인
-- [ ] `uv run pytest` 통과
-- [ ] `uv run ruff check .` 통과
+- [x] ~~`uv run pytest` 통과~~
+  - 2026-04-14: `62 passed`
+- [x] ~~`uv run ruff check .` 통과~~
+  - 2026-04-14: `All checks passed!`
 
 ---
 
@@ -333,25 +387,27 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
 ### 8.2 요약 조회 API
 
 - [ ] `GET /api/summaries` 목록 API 추가
-- [ ] `GET /api/summaries/{summary_id}` 상세 API 추가
+- [x] ~~`GET /api/summaries/{summary_id}` 상세 API 추가~~
 - [ ] 과목/주차/강의별 요약 조회 지원
 - [ ] 요약 파일 삭제 API 필요 여부 결정
-- [ ] 없는 요약 파일에 대한 404 처리
+- [x] ~~없는 요약 파일에 대한 404 처리~~
 
 ### 8.3 프론트 요약 대시보드
 
 - [ ] 요약 목록/상세 페이지 추가
-- [ ] Markdown 렌더링 라이브러리 사용 여부 결정
-  - CDN 사용 여부 검토
-  - sanitization 필수
+- [x] ~~Markdown 렌더링 라이브러리 사용 여부 결정~~
+  - 결정: 외부 라이브러리 없이 `frontend/js/markdown.js`에서 안전한 DOM 렌더링 사용
+  - [x] ~~CDN 사용 여부 검토~~
+  - [x] ~~sanitization 필수~~
 - [ ] 학기/과목/주차 계층 탐색 UI 추가
-- [ ] 강의 상세 패널에서 요약 보기 연결
+- [x] ~~강의 상세 패널에서 요약 보기 연결~~
 
 ### 8.4 검증
 
 - [ ] 요약 파일 생성 후 웹에서 조회 확인
 - [ ] Markdown 렌더링 확인
-- [ ] HTML/script injection 방어 확인
+- [x] ~~HTML/script injection 방어 확인~~
+  - 근거: `renderMarkdown()`이 HTML 문자열을 삽입하지 않고 `textContent` 기반 렌더링
 - [ ] 파일 없음 케이스 UI 확인
 
 ---
@@ -362,26 +418,26 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
 
 ### 9.1 자동 모드 백엔드 설계
 
-- [ ] CUI `run_auto_mode()`와 웹 자동모드 로직 분리
-- [ ] 자동 모드 상태 모델 설계
-  - enabled
-  - current_step
-  - current_course
-  - current_lecture
-  - next_run_at
-  - schedule_hours
-  - processed_count
-  - error
-- [ ] `GET /api/auto/status` 추가
-- [ ] `POST /api/auto/start` 추가
-- [ ] `POST /api/auto/stop` 추가
+- [x] ~~CUI `run_auto_mode()`와 웹 자동모드 로직 분리~~
+- [x] ~~자동 모드 상태 모델 설계~~
+  - [x] ~~enabled~~
+  - [ ] current_step
+  - [x] ~~current_course~~
+  - [x] ~~current_lecture~~
+  - [x] ~~next_run_at~~
+  - [x] ~~schedule_hours~~
+  - [x] ~~processed_count~~
+  - [x] ~~error~~
+- [x] ~~`GET /api/auto/status` 추가~~
+- [x] ~~`POST /api/auto/start` 추가~~
+- [x] ~~`POST /api/auto/stop` 추가~~
 - [ ] `PUT /api/auto/schedule` 추가
 - [ ] 서버 재시작 시 자동 모드 상태 복원 여부 결정
 
 ### 9.2 자동 모드 pipeline 연결
 
-- [ ] 미시청 강의 수집
-- [ ] 재생 step 연결
+- [x] ~~미시청 강의 수집~~
+- [x] ~~재생 step 연결~~
 - [ ] 다운로드 step 연결
 - [ ] STT step 연결
 - [ ] 요약 step 연결
@@ -393,17 +449,17 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
 
 ### 9.3 프론트 자동 모드 UI
 
-- [ ] 대시보드에 자동 모드 ON/OFF 토글 추가
+- [x] ~~대시보드에 자동 모드 ON/OFF 토글 추가~~
 - [ ] 현재 파이프라인 단계 표시
   - 재생 중
   - 다운로드 중
   - STT 변환 중
   - 요약 중
   - 텔레그램 전송 중
-- [ ] 다음 실행 스케줄 표시
-- [ ] 처리 대상 강의 수 표시
-- [ ] 최근 자동 처리 결과/오류 표시
-- [ ] 스케줄 설정 UI 추가
+- [x] ~~다음 실행 스케줄 표시~~
+- [x] ~~처리 대상 강의 수 표시~~
+- [x] ~~최근 자동 처리 결과/오류 표시~~
+- [x] ~~스케줄 설정 UI 추가~~
 
 ### 9.4 검증
 
@@ -479,7 +535,7 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
 
 ### 12.1 Task 모델
 
-- [ ] task id 생성 방식 결정
+- [x] ~~task id 생성 방식 결정~~
 - [ ] task 상태 enum 정의
   - queued
   - running
@@ -493,22 +549,22 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
   - stt
   - summary
   - telegram
-- [ ] task progress 구조 정의
-- [ ] task result 구조 정의
-- [ ] task error 구조 정의
+- [x] ~~task progress 구조 정의~~
+- [x] ~~task result 구조 정의~~
+- [x] ~~task error 구조 정의~~
 
 ### 12.2 Task 저장소
 
-- [ ] 메모리 저장으로 충분한지 결정
+- [x] ~~메모리 저장으로 충분한지 결정~~
 - [ ] SQLite 저장 필요 여부 검토
 - [ ] 서버 재시작 후 task 복원 여부 결정
 - [ ] 오래된 task 정리 정책 추가
 
 ### 12.3 Task API
 
-- [ ] `GET /api/tasks` 목록 API
-- [ ] `GET /api/tasks/{task_id}` 상세 API
-- [ ] `POST /api/tasks/{task_id}/cancel` 취소 API
+- [x] ~~`GET /api/tasks` 목록 API~~
+- [x] ~~`GET /api/tasks/{task_id}` 상세 API~~
+- [x] ~~`POST /api/tasks/{task_id}/cancel` 취소 API~~
 - [ ] WebSocket/SSE 사용 여부 결정
   - 현재는 polling으로 시작 가능
 
@@ -541,7 +597,7 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
   - settings.js
   - tasks.js
 - [ ] 공통 렌더링 유틸 추가
-- [ ] escape/sanitize 유틸 추가
+- [x] ~~escape/sanitize 유틸 추가~~
 - [ ] 상태 관리 최소 규칙 정리
 
 ### 13.3 React 전환 시
@@ -607,7 +663,7 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
 
 ## 16. 코드 품질/CI 체크리스트
 
-2026-04-13 기준 `uv run pytest`와 `uv run ruff check .`는 통과합니다. 이후 변경 시 계속 유지합니다.
+2026-04-14 기준 `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`는 통과합니다. 이후 변경 시 계속 유지합니다.
 
 ### 16.1 Ruff 정리
 
@@ -617,16 +673,19 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
 - [x] ~~`backend/api/state.py`의 `Optional[...]`를 `... | None`로 변경~~
 - [x] ~~`tests/test_config.py` unused `tempfile` 제거~~
 - [x] ~~`uv run ruff check .` 통과~~
-  - 2026-04-13: `All checks passed!`
+  - 2026-04-14: `All checks passed!`
+- [x] ~~`uv run ruff format --check .` 통과~~
+  - 2026-04-14: `64 files already formatted`
 
 ### 16.2 테스트 보강
 
 - [ ] FastAPI smoke test 추가
+- [x] ~~DB 행위 로그 저장/마스킹/조회 테스트 추가~~
 - [ ] 인증 없는 settings 접근 차단 테스트 추가
-- [ ] `/api/courses/stats` lazy loading 테스트 추가
-- [ ] player status error 표시 테스트 추가
-- [ ] settings 민감값 미노출 테스트 추가
-- [ ] task API 도입 시 task 상태 전이 테스트 추가
+- [x] ~~`/api/courses/stats` 제출 필요 통계 테스트 추가~~
+- [x] ~~player status error 표시 테스트 추가~~
+- [x] ~~settings 민감값 미노출/다운로드 경로 무시 정책 테스트 추가~~
+- [x] ~~task API 도입 시 task 상태 전이 테스트 추가~~
 
 ---
 
@@ -634,19 +693,19 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
 
 웹서비스가 README의 설명과 일치한다고 보기 위한 최소 완료 조건입니다.
 
-- [ ] 로그인 후 대시보드에서 실제 강의 통계가 자동 표시된다.
-- [ ] 과목/주차/강의 목록을 웹에서 탐색할 수 있다.
-- [ ] 웹에서 강의를 재생할 수 있고 성공/실패/중지 상태가 명확히 표시된다.
-- [ ] 재생 완료 후 미수강/완료 상태와 통계가 갱신된다.
-- [ ] 웹에서 강의 다운로드를 실행하고 진행률을 볼 수 있다.
+- [x] ~~로그인 후 대시보드에서 실제 강의 통계가 자동 표시된다.~~
+- [x] ~~과목/주차/강의 목록을 웹에서 탐색할 수 있다.~~
+- [x] ~~웹에서 강의를 재생할 수 있고 성공/실패/중지 상태가 명확히 표시된다.~~
+- [x] ~~재생 완료 후 미수강/완료 상태와 통계가 갱신된다.~~
+- [x] ~~웹에서 강의 다운로드를 실행하고 진행률을 볼 수 있다.~~
 - [ ] 웹에서 STT 변환을 실행하거나 파이프라인으로 자동 실행된다.
 - [ ] 웹에서 AI 요약을 실행하거나 파이프라인으로 자동 실행된다.
-- [ ] 생성된 요약을 웹에서 과목/주차별로 열람할 수 있다.
-- [ ] 자동 모드를 웹에서 켜고 끌 수 있다.
-- [ ] 자동 모드의 현재 단계와 다음 스케줄을 웹에서 볼 수 있다.
+- [x] ~~생성된 요약을 웹에서 과목/주차별로 열람할 수 있다.~~
+- [x] ~~자동 모드를 웹에서 켜고 끌 수 있다.~~
+- [x] ~~자동 모드의 현재 강의와 다음 스케줄을 웹에서 볼 수 있다.~~
 - [ ] 텔레그램 설정/테스트/요약 전송이 웹 흐름과 연결된다.
-- [ ] Settings API 등 관리 API가 인증 없이 변경되지 않는다.
-- [ ] 프론트가 외부 문자열을 안전하게 렌더링한다.
-- [ ] `uv run pytest`가 통과한다.
-- [ ] `uv run ruff check .`가 통과한다.
+- [x] ~~Settings API 등 관리 API가 인증 없이 변경되지 않는다.~~
+- [x] ~~프론트가 외부 문자열을 안전하게 렌더링한다.~~
+- [x] ~~`uv run pytest`가 통과한다.~~
+- [x] ~~`uv run ruff check .`가 통과한다.~~
 - [ ] README가 실제 구현과 일치한다.

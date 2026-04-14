@@ -26,6 +26,27 @@ def test_lecture_item_needs_watch():
     assert lec_upcoming.needs_watch is False
 
 
+def test_lecture_item_needs_submission():
+    """미완료 과제/퀴즈만 제출 필요로 집계한다."""
+    assignment = LectureItem(title="a", item_url="/a", lecture_type=LectureType.ASSIGNMENT, completion="incomplete")
+    quiz = LectureItem(title="q", item_url="/q", lecture_type=LectureType.QUIZ, completion="incomplete")
+    done_quiz = LectureItem(title="done", item_url="/q2", lecture_type=LectureType.QUIZ, completion="completed")
+    upcoming_assignment = LectureItem(
+        title="upcoming",
+        item_url="/a2",
+        lecture_type=LectureType.ASSIGNMENT,
+        completion="incomplete",
+        is_upcoming=True,
+    )
+    video = LectureItem(title="v", item_url="/v", lecture_type=LectureType.MOVIE, completion="incomplete")
+
+    assert assignment.needs_submission is True
+    assert quiz.needs_submission is True
+    assert done_quiz.needs_submission is False
+    assert upcoming_assignment.needs_submission is False
+    assert video.needs_submission is False
+
+
 def test_lecture_item_full_url():
     """상대/절대 URL 처리 정확성."""
     lec_rel = LectureItem(title="t", item_url="/courses/123", lecture_type=LectureType.MOVIE)
@@ -36,28 +57,36 @@ def test_lecture_item_full_url():
 
 
 def test_course_detail_counts():
-    """과목 상세 비디오/미시청 카운트."""
+    """과목 상세 비디오/제출 필요 카운트."""
     lecs = [
         LectureItem(title="v1", item_url="/a", lecture_type=LectureType.MOVIE, completion="incomplete"),
         LectureItem(title="v2", item_url="/b", lecture_type=LectureType.MOVIE, completion="completed"),
         LectureItem(title="a1", item_url="/c", lecture_type=LectureType.ASSIGNMENT),
+        LectureItem(title="a2", item_url="/d", lecture_type=LectureType.ASSIGNMENT, completion="completed"),
+        LectureItem(title="q1", item_url="/e", lecture_type=LectureType.QUIZ),
     ]
     week = Week(title="1주차", week_number=1, lectures=lecs)
     course = Course(id="1", long_name="Test", href="/c/1", term="2026-1")
     detail = CourseDetail(course=course, course_name="Test", professors="Prof", weeks=[week])
     assert detail.total_video_count == 2
     assert detail.pending_video_count == 1
+    assert detail.pending_assignment_count == 1
+    assert detail.pending_quiz_count == 1
 
 
 def test_week_pending_count():
-    """Week의 미시청 강의 카운트."""
+    """Week의 미시청 영상/제출 필요 카운트."""
     lecs = [
         LectureItem(title="v1", item_url="/a", lecture_type=LectureType.MOVIE, completion="incomplete"),
         LectureItem(title="v2", item_url="/b", lecture_type=LectureType.READYSTREAM, completion="incomplete"),
         LectureItem(title="v3", item_url="/c", lecture_type=LectureType.MOVIE, completion="completed"),
+        LectureItem(title="a1", item_url="/d", lecture_type=LectureType.ASSIGNMENT, completion="incomplete"),
+        LectureItem(title="q1", item_url="/e", lecture_type=LectureType.QUIZ, completion="incomplete"),
     ]
     week = Week(title="2주차", week_number=2, lectures=lecs)
     assert week.pending_count == 2
+    assert week.pending_assignment_count == 1
+    assert week.pending_quiz_count == 1
 
 
 def test_course_urls():

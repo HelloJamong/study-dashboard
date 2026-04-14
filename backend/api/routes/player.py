@@ -6,6 +6,8 @@ from backend.api.task_manager import ManagedTask, task_manager
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from src import event_log
+
 router = APIRouter()
 
 
@@ -105,6 +107,20 @@ async def start_play(req: PlayRequest):
                 app_state.playback.status = "stopped"
                 app_state.playback.error = None
                 managed.update(status="cancelled", stage="stopped", message="재생이 중지되었습니다.")
+                event_log.record_event(
+                    event_type="player",
+                    action="play_stop",
+                    status="cancelled",
+                    actor_user_id=app_state.user_id or None,
+                    target_type="lecture",
+                    course_id=req.course_id,
+                    course_name=course.long_name,
+                    lecture_title=req.lecture_title,
+                    lecture_url=req.lecture_url,
+                    week_label=req.week_label,
+                    message="재생이 중지되었습니다.",
+                    metadata={"task_id": managed.id},
+                )
             elif final_state.error:
                 app_state.playback.status = "error"
                 app_state.playback.log_path = _write_playback_log(
@@ -114,18 +130,76 @@ async def start_play(req: PlayRequest):
                     log_buffer,
                 )
                 managed.update(status="failed", stage="error", error=final_state.error)
+                event_log.record_event(
+                    event_type="player",
+                    action="play_failed",
+                    status="failed",
+                    actor_user_id=app_state.user_id or None,
+                    target_type="lecture",
+                    course_id=req.course_id,
+                    course_name=course.long_name,
+                    lecture_title=req.lecture_title,
+                    lecture_url=req.lecture_url,
+                    week_label=req.week_label,
+                    error_code="playback_error",
+                    error_message=final_state.error,
+                    log_path=app_state.playback.log_path,
+                    metadata={"task_id": managed.id},
+                )
             elif final_state.ended:
                 app_state.playback.status = "completed"
                 updated = _mark_lecture_completed(req.course_id, req.lecture_url)
                 if not updated:
                     app_state.playback.refresh_recommended = True
                 managed.update(result={"playback_status": "completed"})
+                event_log.record_event(
+                    event_type="player",
+                    action="play_complete",
+                    status="success",
+                    actor_user_id=app_state.user_id or None,
+                    target_type="lecture",
+                    course_id=req.course_id,
+                    course_name=course.long_name,
+                    lecture_title=req.lecture_title,
+                    lecture_url=req.lecture_url,
+                    week_label=req.week_label,
+                    message="재생이 완료되었습니다.",
+                    metadata={"task_id": managed.id, "cache_updated": updated},
+                )
             else:
                 app_state.playback.status = "stopped"
                 managed.update(status="cancelled", stage="stopped", message="재생이 완료되지 않았습니다.")
+                event_log.record_event(
+                    event_type="player",
+                    action="play_stop",
+                    status="cancelled",
+                    actor_user_id=app_state.user_id or None,
+                    target_type="lecture",
+                    course_id=req.course_id,
+                    course_name=course.long_name,
+                    lecture_title=req.lecture_title,
+                    lecture_url=req.lecture_url,
+                    week_label=req.week_label,
+                    message="재생이 완료되지 않았습니다.",
+                    metadata={"task_id": managed.id},
+                )
         except asyncio.CancelledError:
             app_state.playback.status = "stopped"
             app_state.playback.error = None
+            event_log.record_event(
+                event_type="player",
+                action="play_stop",
+                status="cancelled",
+                actor_user_id=app_state.user_id or None,
+                target_type="lecture",
+                course_id=req.course_id,
+                course_name=course.long_name,
+                lecture_title=req.lecture_title,
+                lecture_url=req.lecture_url,
+                week_label=req.week_label,
+                message="재생 작업이 취소되었습니다.",
+                metadata={"task_id": managed.id},
+            )
             raise
         except Exception as e:
             app_state.playback.status = "error"
@@ -137,6 +211,22 @@ async def start_play(req: PlayRequest):
                 log_buffer,
             )
             managed.update(status="failed", stage="error", error=str(e))
+            event_log.record_event(
+                event_type="player",
+                action="play_failed",
+                status="failed",
+                actor_user_id=app_state.user_id or None,
+                target_type="lecture",
+                course_id=req.course_id,
+                course_name=course.long_name,
+                lecture_title=req.lecture_title,
+                lecture_url=req.lecture_url,
+                week_label=req.week_label,
+                error_code=type(e).__name__,
+                error_message=str(e),
+                log_path=app_state.playback.log_path,
+                metadata={"task_id": managed.id},
+            )
         finally:
             app_state.is_playing = False
 
@@ -152,12 +242,28 @@ async def start_play(req: PlayRequest):
     app_state.play_task = managed.task
     app_state.play_task_id = managed.id
 
+    event_log.record_event(
+        event_type="player",
+        action="play_start",
+        status="started",
+        actor_user_id=app_state.user_id or None,
+        target_type="lecture",
+        course_id=req.course_id,
+        course_name=course.long_name,
+        lecture_title=req.lecture_title,
+        lecture_url=req.lecture_url,
+        week_label=req.week_label,
+        message="재생을 시작했습니다.",
+        metadata={"task_id": managed.id},
+    )
+
     return {"started": True, "lecture": req.lecture_title, "task_id": managed.id}
 
 
 @router.post("/stop")
 async def stop_play():
     _require_auth()
+    task_id = app_state.play_task_id
     if app_state.play_task_id:
         await task_manager.cancel(app_state.play_task_id)
     elif app_state.play_task and not app_state.play_task.done():
@@ -166,6 +272,20 @@ async def stop_play():
     app_state.is_playing = False
     app_state.playback.status = "stopped"
     app_state.playback.error = None
+    event_log.record_event(
+        event_type="player",
+        action="play_stop_request",
+        status="requested",
+        actor_user_id=app_state.user_id or None,
+        target_type="lecture",
+        course_id=app_state.current_course_id or None,
+        course_name=app_state.current_course_name or None,
+        lecture_title=app_state.current_lecture_title or None,
+        lecture_url=app_state.current_lecture_url or None,
+        week_label=app_state.current_week_label or None,
+        message="재생 중지 요청",
+        metadata={"task_id": task_id},
+    )
     return {"stopped": True}
 
 

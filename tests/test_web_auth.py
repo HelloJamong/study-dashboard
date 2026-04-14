@@ -1,11 +1,14 @@
 """웹 auth route 실패/타임아웃 처리 테스트."""
 
 import asyncio
+from unittest.mock import patch
 
 import pytest
 from backend.api.routes import auth as auth_route
 from backend.api.state import PlaybackProgress, app_state
 from fastapi import HTTPException
+
+from src import event_log
 
 
 def _reset_app_state() -> None:
@@ -27,8 +30,17 @@ def _reset_app_state() -> None:
     app_state.auto.task_id = None
 
 
+def _make_db(tmp_path):
+    import src.db as db_module
+
+    return patch.object(db_module, "_db_path", return_value=tmp_path / "app.db")
+
+
 @pytest.fixture(autouse=True)
-def reset_state():
+def reset_state(monkeypatch, tmp_path):
+    import src.db as db_module
+
+    monkeypatch.setattr(db_module, "_db_path", lambda: tmp_path / "app.db")
     _reset_app_state()
     yield
     _reset_app_state()
@@ -127,3 +139,28 @@ async def test_login_timeout_does_not_wait_for_noncooperative_start(monkeypatch)
     assert app_state.scraper is None
     await asyncio.sleep(0.05)
     assert closed is True
+
+
+@pytest.mark.asyncio
+async def test_login_and_logout_write_event_logs(monkeypatch, tmp_path):
+    class FakeScraper:
+        def __init__(self, username: str, password: str):
+            self.username = username
+            self.password = password
+
+        async def start(self):
+            return None
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr("src.scraper.course_scraper.CourseScraper", FakeScraper)
+
+    with _make_db(tmp_path):
+        await auth_route.login(auth_route.LoginRequest(user_id="student123", password="secret"))
+        await auth_route.logout()
+        events = event_log.list_events(event_type="auth", limit=10)
+
+    assert [event["action"] for event in events] == ["logout", "login"]
+    assert all(event_log.is_timestamp_format(event["created_at"]) for event in events)
+    assert events[1]["actor_user_id"] == "student123"

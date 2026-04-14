@@ -16,10 +16,8 @@ def test_read_version():
 
 
 def test_default_download_dir():
-    """OS별 기본 다운로드 경로가 빈 문자열이 아니어야 한다."""
-    path = _default_download_dir()
-    assert path
-    assert isinstance(path, str)
+    """다운로드 기본 경로는 컨테이너 내부 /download로 고정한다."""
+    assert _default_download_dir() == "/download"
 
 
 def test_normalize_download_rule():
@@ -89,6 +87,19 @@ def test_config_load_preserves_session_credentials(tmp_path):
     assert Config.LMS_USER_ID == "student123"
     assert Config.LMS_PASSWORD == "secret"
     assert Config.DOWNLOAD_RULE == "mp3"
+
+
+def test_config_ignores_saved_download_dir(tmp_path):
+    """DB에 과거 경로가 저장되어 있어도 다운로드 경로는 /download만 사용한다."""
+    import src.db as db
+    from src.config import Config
+
+    with _make_db(tmp_path):
+        db.set("DOWNLOAD_DIR", "/tmp/old-download")
+        Config.load()
+
+    assert Config.DOWNLOAD_DIR == "/download"
+    assert Config.get_download_dir() == "/download"
 
 
 def test_db_set_many(tmp_path):

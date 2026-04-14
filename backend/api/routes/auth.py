@@ -6,6 +6,8 @@ from backend.api.task_manager import task_manager
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from src import event_log
+
 router = APIRouter()
 
 _LOGIN_TIMEOUT_SECONDS = 45
@@ -55,15 +57,39 @@ async def login(req: LoginRequest):
         await _start_scraper_with_timeout(scraper)
     except TimeoutError:
         await _close_scraper(scraper)
+        event_log.record_event(
+            event_type="auth",
+            action="login",
+            status="failed",
+            actor_user_id=event_log.mask_user_id(req.user_id),
+            error_code="timeout",
+            error_message="로그인 시간이 초과되었습니다.",
+        )
         raise HTTPException(
             status_code=504,
             detail="로그인 시간이 초과되었습니다. 계정 정보를 확인하거나 잠시 후 다시 시도하세요.",
         ) from None
     except RuntimeError:
         await _close_scraper(scraper)
+        event_log.record_event(
+            event_type="auth",
+            action="login",
+            status="failed",
+            actor_user_id=event_log.mask_user_id(req.user_id),
+            error_code="invalid_credentials",
+            error_message="로그인 실패. 학번/비밀번호를 확인하세요.",
+        )
         raise HTTPException(status_code=401, detail="로그인 실패. 학번/비밀번호를 확인하세요.") from None
     except Exception as e:
         await _close_scraper(scraper)
+        event_log.record_event(
+            event_type="auth",
+            action="login",
+            status="failed",
+            actor_user_id=event_log.mask_user_id(req.user_id),
+            error_code=type(e).__name__,
+            error_message=str(e),
+        )
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     app_state.scraper = scraper
@@ -75,11 +101,20 @@ async def login(req: LoginRequest):
 
     Config.set_session_credentials(req.user_id, req.password)
 
+    event_log.record_event(
+        event_type="auth",
+        action="login",
+        status="success",
+        actor_user_id=req.user_id,
+        message="웹 로그인 성공",
+    )
+
     return {"success": True, "user_id": req.user_id}
 
 
 @router.post("/logout")
 async def logout():
+    user_id = app_state.user_id or None
     if app_state.play_task_id:
         await task_manager.cancel(app_state.play_task_id)
         app_state.play_task_id = None
@@ -109,6 +144,14 @@ async def logout():
     from src.config import Config
 
     Config.clear_session_credentials()
+
+    event_log.record_event(
+        event_type="auth",
+        action="logout",
+        status="success",
+        actor_user_id=user_id,
+        message="웹 로그아웃 성공",
+    )
 
     return {"success": True}
 
