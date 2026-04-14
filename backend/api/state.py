@@ -24,6 +24,7 @@ class AutoModeState:
     enabled: bool = False
     schedule_hours: list = field(default_factory=lambda: [9, 13, 18, 23])
     task: asyncio.Task | None = None
+    task_id: str | None = None
     current_course: str = ""
     current_lecture: str = ""
     processed_count: int = 0
@@ -44,6 +45,7 @@ class AppState:
     current_course_name: str = ""
     playback: PlaybackProgress = field(default_factory=PlaybackProgress)
     play_task: asyncio.Task | None = None
+    play_task_id: str | None = None
     auto: AutoModeState = field(default_factory=AutoModeState)
 
 

@@ -1,5 +1,63 @@
 # Changelog
 
+## [v26.04.07] - 2026-04-14
+
+### Background Task 공통화 및 프론트 모듈 분리
+
+#### 추가
+- **공통 백그라운드 태스크 관리자** (`backend/api/task_manager.py`)
+  - `ManagedTask` 상태 모델 추가: `queued` / `running` / `completed` / `failed` / `cancelled`
+  - 작업별 `stage`, `message`, `progress_pct`, `result`, `error`, `metadata` 추적 지원
+  - `TaskManager.create()`, `cancel()`, `get()`, `list()`로 장시간 작업 실행/취소/조회 흐름 공통화
+- **공통 태스크 상태 API** (`backend/api/routes/tasks.py`)
+  - `GET /api/tasks` — 등록된 백그라운드 작업 목록 조회
+  - `GET /api/tasks/{task_id}` — 단일 작업 상태 조회
+  - `POST /api/tasks/{task_id}/cancel` — 작업 취소 요청
+- **요약 조회 API** (`backend/api/routes/summaries.py`, `backend/api/summary_store.py`)
+  - `GET /api/summaries/{summary_id}` 추가
+  - `data/summaries/{term}/{course}/{week}/{lecture}.md` 형식의 신규 요약 저장 위치 조회 지원
+  - 기존 다운로드 폴더의 `{lecture}_summarized.txt` 요약 파일도 fallback으로 조회
+  - summary id는 파일 경로를 직접 노출하지 않도록 URL-safe base64로 인코딩
+- **강의 상세 요약 메타데이터** (`backend/api/routes/courses.py`)
+  - 강의별 `has_summary`, `summary_id`, `summary` 필드 추가
+  - 완료된 강의에 요약 파일이 있으면 프론트에서 “요약 내용 보기” 버튼을 표시할 수 있도록 연결
+- **요약 상세 화면** (`frontend/index.html`, `frontend/js/app.js`)
+  - 강의 상세 화면에서 완료+요약 존재 강의에 “요약 내용 보기” 버튼 표시
+  - 요약 상세 페이지에서 AI 요약 내용을 마크다운 스타일로 렌더링
+  - 마크다운 렌더러는 DOM 생성 + `textContent` 기반으로 동작해 요약 본문 HTML 주입을 방지
+
+#### 변경
+- **웹 재생/자동 모드 태스크 연결** (`backend/api/routes/player.py`, `backend/api/routes/auto.py`)
+  - `asyncio.create_task()` 직접 호출을 `task_manager.create()` 기반으로 전환
+  - 재생 시작/자동 모드 시작 응답에 `task_id` 반환
+  - `/api/player/status`, `/api/auto/status`에서 현재 연결된 task id 노출
+  - 로그아웃/중지 시 공통 task manager cancellation 경로 사용
+- **프론트 구조 결정: vanilla 유지 + ES module 분리**
+  - 기존 단일 `frontend/index.html` inline script를 `frontend/js/` 모듈로 분리
+  - `frontend/js/api.js`: API 호출/timeout 처리
+  - `frontend/js/utils.js`: DOM selector, escape, time formatting
+  - `frontend/js/markdown.js`: 안전한 마크다운 렌더링
+  - `frontend/js/state.js`: 전역 앱 상태
+  - `frontend/js/app.js`: 페이지 라우팅/이벤트 바인딩/화면 로직
+  - `frontend/Dockerfile`, `docker-compose.yml`에 `/js` 정적 파일 배포/개발 마운트 추가
+- **강의 상세 UX 개선**
+  - 강의 목록 하단 패널 대신 별도 강의 상세 페이지로 전환
+  - “강의 목록으로” / “주차별 강의로” 복귀 동선 추가
+  - 과목 카드에 키보드 접근성(`role="button"`, `tabindex`) 보강
+
+#### 테스트
+- **`tests/test_task_manager.py`**
+  - 공통 task manager 완료/취소 상태 전이 검증
+- **`tests/test_web_summaries.py`**
+  - 강의 상세 API의 요약 파일 감지 검증
+  - 요약 조회 API의 마크다운 읽기 검증
+- 기존 웹 auth/player 테스트의 app_state reset 범위를 task id/auto task까지 확장
+
+#### 검증
+- `node --check frontend/js/*.js` — 통과
+- `uv run pytest` — 45 passed
+- `uv run ruff check .` — All checks passed
+
 ## [v26.04.06] - 2026-04-14
 
 ### OpenAI 제거 — Gemini 단일 요약 엔진으로 통합

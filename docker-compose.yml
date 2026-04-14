@@ -40,6 +40,7 @@ services:
     volumes:
       # 개발용 — HTML/nginx 수정 시 재빌드 없이 즉시 반영
       - ./frontend/index.html:/usr/share/nginx/html/index.html:ro
+      - ./frontend/js:/usr/share/nginx/html/js:ro
       - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./certs:/etc/nginx/certs:ro
     depends_on:

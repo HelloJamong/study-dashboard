@@ -5,6 +5,7 @@ from contextlib import suppress
 from datetime import datetime, timedelta
 
 from backend.api.state import PlaybackProgress, app_state
+from backend.api.task_manager import ManagedTask, task_manager
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -184,11 +185,7 @@ async def _auto_loop(schedule_hours: list[int]) -> None:
         app_state.auto.current_course = ""
         app_state.auto.current_lecture = ""
         app_state.auto.task = None
-
-
-def _consume_task_exception(task: asyncio.Task) -> None:
-    with suppress(asyncio.CancelledError, Exception):
-        task.result()
+        app_state.auto.task_id = None
 
 
 @router.get("/status")
@@ -203,6 +200,7 @@ async def auto_status():
         "processed_count": a.processed_count,
         "next_run_at": a.next_run_at or None,
         "error": a.error,
+        "task_id": a.task_id,
     }
 
 
@@ -225,22 +223,32 @@ async def auto_start(req: AutoStartRequest):
     app_state.auto.error = None
     app_state.auto.next_run_at = ""
 
-    task = asyncio.create_task(_auto_loop(hours))
-    app_state.auto.task = task
-    task.add_done_callback(_consume_task_exception)
+    async def run(managed: ManagedTask):
+        managed.update(stage="auto_loop", message="자동 모드가 실행 중입니다.")
+        await _auto_loop(hours)
+        if app_state.auto.error:
+            managed.update(status="failed", stage="error", error=app_state.auto.error)
+        return {"processed_count": app_state.auto.processed_count}
 
-    return {"started": True, "schedule_hours": hours}
+    managed = task_manager.create("auto", run, metadata={"schedule_hours": hours})
+    app_state.auto.task = managed.task
+    app_state.auto.task_id = managed.id
+
+    return {"started": True, "schedule_hours": hours, "task_id": managed.id}
 
 
 @router.post("/stop")
 async def auto_stop():
     _require_auth()
     app_state.auto.enabled = False
-    if app_state.auto.task and not app_state.auto.task.done():
+    if app_state.auto.task_id:
+        await task_manager.cancel(app_state.auto.task_id)
+    elif app_state.auto.task and not app_state.auto.task.done():
         app_state.auto.task.cancel()
         with suppress(Exception):
             await asyncio.wait_for(asyncio.shield(app_state.auto.task), timeout=3.0)
     app_state.auto.task = None
+    app_state.auto.task_id = None
     app_state.auto.current_course = ""
     app_state.auto.current_lecture = ""
     return {"stopped": True}

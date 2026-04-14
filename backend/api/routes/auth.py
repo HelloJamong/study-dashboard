@@ -2,6 +2,7 @@ import asyncio
 from contextlib import suppress
 
 from backend.api.state import app_state
+from backend.api.task_manager import task_manager
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -79,8 +80,16 @@ async def login(req: LoginRequest):
 
 @router.post("/logout")
 async def logout():
-    if app_state.play_task and not app_state.play_task.done():
+    if app_state.play_task_id:
+        await task_manager.cancel(app_state.play_task_id)
+        app_state.play_task_id = None
+    elif app_state.play_task and not app_state.play_task.done():
         app_state.play_task.cancel()
+    if app_state.auto.task_id:
+        await task_manager.cancel(app_state.auto.task_id)
+        app_state.auto.task_id = None
+    elif app_state.auto.task and not app_state.auto.task.done():
+        app_state.auto.task.cancel()
 
     if app_state.scraper:
         await app_state.scraper.close()
@@ -90,6 +99,7 @@ async def logout():
     app_state.courses = []
     app_state.details = []
     app_state.is_playing = False
+    app_state.auto.enabled = False
 
     return {"success": True}
 

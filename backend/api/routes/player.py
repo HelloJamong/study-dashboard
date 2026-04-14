@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from backend.api.state import PlaybackProgress, app_state
+from backend.api.task_manager import ManagedTask, task_manager
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -87,7 +88,8 @@ async def start_play(req: PlayRequest):
         if not state.error:
             app_state.playback.status = "playing"
 
-    async def run():
+    async def run(managed: ManagedTask):
+        managed.update(stage="playing", message=req.lecture_title)
         try:
             final_state = await play_lecture(
                 app_state.scraper._page,
@@ -101,6 +103,7 @@ async def start_play(req: PlayRequest):
             if final_state.error == "사용자 중단":
                 app_state.playback.status = "stopped"
                 app_state.playback.error = None
+                managed.update(status="cancelled", stage="stopped", message="재생이 중지되었습니다.")
             elif final_state.error:
                 app_state.playback.status = "error"
                 app_state.playback.log_path = _write_playback_log(
@@ -109,13 +112,16 @@ async def start_play(req: PlayRequest):
                     final_state.error,
                     log_buffer,
                 )
+                managed.update(status="failed", stage="error", error=final_state.error)
             elif final_state.ended:
                 app_state.playback.status = "completed"
                 updated = _mark_lecture_completed(req.course_id, req.lecture_url)
                 if not updated:
                     app_state.playback.refresh_recommended = True
+                managed.update(result={"playback_status": "completed"})
             else:
                 app_state.playback.status = "stopped"
+                managed.update(status="cancelled", stage="stopped", message="재생이 완료되지 않았습니다.")
         except asyncio.CancelledError:
             app_state.playback.status = "stopped"
             app_state.playback.error = None
@@ -129,20 +135,33 @@ async def start_play(req: PlayRequest):
                 str(e),
                 log_buffer,
             )
+            managed.update(status="failed", stage="error", error=str(e))
         finally:
             app_state.is_playing = False
 
-    task = asyncio.create_task(run())
-    app_state.play_task = task
+    managed = task_manager.create(
+        "player",
+        run,
+        metadata={
+            "course_id": req.course_id,
+            "lecture_title": req.lecture_title,
+            "week_label": req.week_label,
+        },
+    )
+    app_state.play_task = managed.task
+    app_state.play_task_id = managed.id
 
-    return {"started": True, "lecture": req.lecture_title}
+    return {"started": True, "lecture": req.lecture_title, "task_id": managed.id}
 
 
 @router.post("/stop")
 async def stop_play():
     _require_auth()
-    if app_state.play_task and not app_state.play_task.done():
+    if app_state.play_task_id:
+        await task_manager.cancel(app_state.play_task_id)
+    elif app_state.play_task and not app_state.play_task.done():
         app_state.play_task.cancel()
+    app_state.play_task_id = None
     app_state.is_playing = False
     app_state.playback.status = "stopped"
     app_state.playback.error = None
@@ -165,4 +184,5 @@ async def get_status():
         "status": pb.status,
         "log_path": pb.log_path,
         "refresh_recommended": pb.refresh_recommended,
+        "task_id": app_state.play_task_id,
     }

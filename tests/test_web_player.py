@@ -24,6 +24,10 @@ def _reset_app_state() -> None:
     app_state.current_course_name = ""
     app_state.playback = PlaybackProgress()
     app_state.play_task = None
+    app_state.play_task_id = None
+    app_state.auto.enabled = False
+    app_state.auto.task = None
+    app_state.auto.task_id = None
 
 
 def _seed_course() -> tuple[Course, LectureItem]:

@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from backend.api.routes import auth, auto, courses, player, settings
+from backend.api.routes import auth, auto, courses, player, settings, summaries, tasks
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -33,6 +33,8 @@ app.include_router(courses.router, prefix="/api/courses", tags=["courses"])
 app.include_router(player.router, prefix="/api/player", tags=["player"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(auto.router, prefix="/api/auto", tags=["auto"])
+app.include_router(summaries.router, prefix="/api/summaries", tags=["summaries"])
+app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 
 
 @app.get("/api/health")

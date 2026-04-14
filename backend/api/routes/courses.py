@@ -2,6 +2,7 @@ from collections import Counter
 from pathlib import Path
 
 from backend.api.state import app_state
+from backend.api.summary_store import summary_for_lecture
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
@@ -111,6 +112,7 @@ async def get_course_detail(course_id: str):
     for week in detail.weeks:
         lectures = []
         for lec in week.lectures:
+            summary = summary_for_lecture(course.term, course.long_name, lec.week_label, lec.title)
             lectures.append(
                 {
                     "title": lec.title,
@@ -123,6 +125,9 @@ async def get_course_detail(course_id: str):
                     "completion": lec.completion,
                     "is_video": lec.is_video,
                     "needs_watch": lec.needs_watch,
+                    "has_summary": summary["available"],
+                    "summary_id": summary["id"],
+                    "summary": summary,
                 }
             )
         weeks.append(
