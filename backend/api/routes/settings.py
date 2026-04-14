@@ -4,12 +4,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src import db
-from src.config import Config
+from src.config import Config, normalize_download_rule
 from src.crypto import encrypt
 
 router = APIRouter()
 
-_SENSITIVE = {"LMS_USER_ID", "LMS_PASSWORD", "GOOGLE_API_KEY", "TELEGRAM_BOT_TOKEN"}
+_SENSITIVE = {"GOOGLE_API_KEY", "TELEGRAM_BOT_TOKEN"}
 
 
 def _require_auth() -> None:
@@ -21,8 +21,10 @@ def _require_auth() -> None:
 async def get_settings():
     _require_auth()
     return {
+        "DOWNLOAD_ENABLED": Config.DOWNLOAD_ENABLED,
         "DOWNLOAD_DIR": Config.DOWNLOAD_DIR,
-        "DOWNLOAD_RULE": Config.DOWNLOAD_RULE,
+        "DOWNLOAD_RULE": Config.get_download_rule(),
+        "AUTO_DOWNLOAD_AFTER_PLAY": Config.AUTO_DOWNLOAD_AFTER_PLAY,
         "STT_ENABLED": Config.STT_ENABLED,
         "STT_LANGUAGE": Config.STT_LANGUAGE,
         "WHISPER_MODEL": Config.WHISPER_MODEL,
@@ -37,8 +39,10 @@ async def get_settings():
 
 
 class SettingsUpdate(BaseModel):
+    DOWNLOAD_ENABLED: str | None = None
     DOWNLOAD_RULE: str | None = None
     DOWNLOAD_DIR: str | None = None
+    AUTO_DOWNLOAD_AFTER_PLAY: str | None = None
     STT_ENABLED: str | None = None
     STT_LANGUAGE: str | None = None
     WHISPER_MODEL: str | None = None
@@ -58,7 +62,19 @@ async def update_settings(body: SettingsUpdate):
     _require_auth()
     to_save = {}
     for key, val in body.model_dump(exclude_none=True).items():
+        if key == "DOWNLOAD_RULE":
+            val = normalize_download_rule(val)
         to_save[key] = encrypt(val) if key in _SENSITIVE and val else val
+
+    download_enabled = to_save.get("DOWNLOAD_ENABLED", Config.DOWNLOAD_ENABLED) == "true"
+    auto_download_after_play = to_save.get("AUTO_DOWNLOAD_AFTER_PLAY", Config.AUTO_DOWNLOAD_AFTER_PLAY) == "true"
+    if not download_enabled:
+        to_save["AUTO_DOWNLOAD_AFTER_PLAY"] = "false"
+        to_save["STT_ENABLED"] = "false"
+        to_save["AI_ENABLED"] = "false"
+    elif not auto_download_after_play:
+        to_save["STT_ENABLED"] = "false"
+        to_save["AI_ENABLED"] = "false"
 
     if to_save:
         db.set_many(to_save)

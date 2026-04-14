@@ -235,8 +235,8 @@ def _show_lecture_action_menu(lec: LectureItem) -> LectureAction:
     """선택한 강의에 대한 액션 메뉴를 표시하고 선택된 액션을 반환한다."""
     from src.config import Config
 
-    rule = Config.DOWNLOAD_RULE or "both"
-    rule_label = {"video": "mp4", "audio": "mp3", "both": "mp4 + mp3"}.get(rule, rule)
+    rule = Config.get_download_rule()
+    rule_label = {"mp4": "mp4", "mp3": "mp3", "both": "mp4 + mp3"}.get(rule, rule)
 
     console.print()
     console.print(

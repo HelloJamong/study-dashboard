@@ -26,29 +26,16 @@ _MAX_LOGIN_ATTEMPTS = 3
 
 
 async def run():
-    # DB 초기화 및 기존 .env 마이그레이션 (최초 실행 시 1회)
-    from pathlib import Path
-
+    # DB 초기화 및 설정 로드
     from src import db
 
     db.init()
-    db.migrate_from_env(Path(__file__).parent.parent / ".env")
     Config.load()
 
     # ── 1. 인증 ──────────────────────────────────────────────────
     scraper: CourseScraper | None = None
 
-    # .env에 저장된 계정이 있으면 자동 로그인 시도
-    if Config.has_credentials():
-        user_id = Config.LMS_USER_ID
-        password = Config.LMS_PASSWORD
-        show_login_progress()
-        scraper = await _try_login(user_id, password)
-        if scraper is None:
-            show_login_error("저장된 계정으로 로그인 실패. 다시 입력해주세요.")
-            # 자격증명을 삭제하지 않음 — 네트워크 오류일 수 있음
-
-    # 로그인 실패 또는 저장된 계정 없으면 입력 받기
+    # 보안을 위해 DB 저장 계정이 있더라도 자동 로그인하지 않고 매 실행마다 입력 받는다.
     attempts = 0
     while scraper is None:
         if attempts >= _MAX_LOGIN_ATTEMPTS:
@@ -69,7 +56,7 @@ async def run():
             show_login_error()
         else:
             show_login_success()
-            Config.save_credentials(user_id, password)
+            Config.set_session_credentials(user_id, password)
 
     # ── 2. 최초 설정 (설정이 없으면 진행) ────────────────────────
     if not Config.has_settings():
@@ -128,8 +115,8 @@ async def run():
                 _tg_notify_playback_error(selected.long_name, lec, failed=has_error)
             input("\n  Enter를 눌러 계속...")
         elif action == LectureAction.DOWNLOAD:
-            rule = Config.DOWNLOAD_RULE or "both"
-            audio_only = rule == "audio"
+            rule = Config.get_download_rule()
+            audio_only = rule == "mp3"
             both = rule == "both"
             await run_download(scraper._page, lec, selected, audio_only=audio_only, both=both)
             input("\n  Enter를 눌러 계속...")

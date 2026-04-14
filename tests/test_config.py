@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from src.config import _default_download_dir, _read_version
+from src.config import _default_download_dir, _read_version, normalize_download_rule
 
 
 def test_read_version():
@@ -20,6 +20,18 @@ def test_default_download_dir():
     path = _default_download_dir()
     assert path
     assert isinstance(path, str)
+
+
+def test_normalize_download_rule():
+    """다운로드 규칙은 mp4/mp3/both 표준값으로 정규화된다."""
+    assert normalize_download_rule("") == "mp4"
+    assert normalize_download_rule(None) == "mp4"
+    assert normalize_download_rule("video") == "mp4"
+    assert normalize_download_rule("audio") == "mp3"
+    assert normalize_download_rule("mp4") == "mp4"
+    assert normalize_download_rule("mp3") == "mp3"
+    assert normalize_download_rule("both") == "both"
+    assert normalize_download_rule("unexpected") == "mp4"
 
 
 # ── db.py 테스트 ───────────────────────────────────────────────
@@ -50,6 +62,35 @@ def test_db_get_default(tmp_path):
         assert db.get("MISSING", "fallback") == "fallback"
 
 
+def test_config_load_does_not_auto_load_lms_credentials(tmp_path):
+    """DB에 계정 정보가 남아 있어도 자동 로그인용으로 로드하지 않는다."""
+    import src.db as db
+    from src.config import Config
+
+    with _make_db(tmp_path):
+        db.set_many({"LMS_USER_ID": "student123", "LMS_PASSWORD": "secret"})
+        Config.clear_session_credentials()
+        Config.load()
+
+    assert Config.LMS_USER_ID == ""
+    assert Config.LMS_PASSWORD == ""
+
+
+def test_config_load_preserves_session_credentials(tmp_path):
+    """설정 reload는 현재 로그인 세션의 메모리 credential을 지우지 않는다."""
+    import src.db as db
+    from src.config import Config
+
+    with _make_db(tmp_path):
+        Config.set_session_credentials("student123", "secret")
+        db.set("DOWNLOAD_RULE", "mp3")
+        Config.load()
+
+    assert Config.LMS_USER_ID == "student123"
+    assert Config.LMS_PASSWORD == "secret"
+    assert Config.DOWNLOAD_RULE == "mp3"
+
+
 def test_db_set_many(tmp_path):
     """set_many로 여러 값을 한 번에 저장한다."""
     import src.db as db
@@ -70,51 +111,6 @@ def test_db_set_many_upsert(tmp_path):
         db.set_many({"X": "new", "Y": "added"})
         assert db.get("X") == "new"
         assert db.get("Y") == "added"
-
-
-def test_db_migrate_from_env(tmp_path):
-    """기존 .env 파일 내용이 DB로 마이그레이션된다."""
-    import src.db as db
-
-    env_file = tmp_path / ".env"
-    env_file.write_text(
-        "# 주석은 무시\n"
-        "LMS_USER_ID=student123\n"
-        "LMS_PASSWORD=secret\n"
-        "\n"
-        "DOWNLOAD_RULE=both\n",
-        encoding="utf-8",
-    )
-
-    with _make_db(tmp_path):
-        result = db.migrate_from_env(env_file)
-        assert result is True
-        assert db.get("LMS_USER_ID") == "student123"
-        assert db.get("LMS_PASSWORD") == "secret"
-        assert db.get("DOWNLOAD_RULE") == "both"
-
-
-def test_db_migrate_skips_when_data_exists(tmp_path):
-    """DB에 이미 설정이 있으면 마이그레이션을 건너뛴다."""
-    import src.db as db
-
-    env_file = tmp_path / ".env"
-    env_file.write_text("LMS_USER_ID=new_value\n", encoding="utf-8")
-
-    with _make_db(tmp_path):
-        db.set("LMS_USER_ID", "existing")
-        result = db.migrate_from_env(env_file)
-        assert result is False
-        assert db.get("LMS_USER_ID") == "existing"
-
-
-def test_db_migrate_no_env_file(tmp_path):
-    """env 파일이 없으면 False를 반환하고 오류가 없어야 한다."""
-    import src.db as db
-
-    with _make_db(tmp_path):
-        result = db.migrate_from_env(tmp_path / "nonexistent.env")
-        assert result is False
 
 
 def test_db_init_idempotent(tmp_path):

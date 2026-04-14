@@ -33,14 +33,8 @@ Google 계정으로 로그인합니다.
 
 설정 화면에서 **AI 요약 설정** 항목을 선택한 뒤 발급받은 API 키를 입력합니다.
 
-또는 `.env` 파일을 직접 수정할 수 있습니다:
-
-```env
-AI_ENABLED=true
-AI_AGENT=gemini
-GOOGLE_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-2.5-flash
-```
+웹 대시보드에서는 **설정 → AI 요약**에서 Gemini API 키와 모델을 저장합니다.
+설정값은 SQLite DB(`data/app.db`)에 저장되며, API 키는 암호화됩니다.
 
 ---
 

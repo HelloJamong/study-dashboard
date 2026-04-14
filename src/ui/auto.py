@@ -322,8 +322,8 @@ async def _process_lecture(scraper, course, lec, stop_event: asyncio.Event) -> b
         return False
 
     # ── 다운로드 ──────────────────────────────────────────────────
-    rule = Config.DOWNLOAD_RULE or "both"
-    audio_only = rule == "audio"
+    rule = Config.get_download_rule()
+    audio_only = rule == "mp3"
     both = rule == "both"
     console.print("  [dim]  → 다운로드 중...[/dim]")
     try:

@@ -76,35 +76,3 @@ def set_many(pairs: dict) -> None:
             [(k, v) for k, v in pairs.items()],
         )
 
-
-def migrate_from_env(env_path: Path) -> bool:
-    """기존 .env 파일이 있으면 DB로 마이그레이션한다.
-
-    DB에 이미 설정이 있으면 건너뛴다 (중복 실행 방지).
-    마이그레이션 성공 시 True, 불필요하거나 파일 없음 시 False 반환.
-    """
-    if not env_path.exists() or not env_path.is_file():
-        return False
-
-    with _connect() as conn:
-        count = conn.execute("SELECT COUNT(*) AS cnt FROM settings").fetchone()["cnt"]
-        if count > 0:
-            return False
-
-    pairs: dict[str, str] = {}
-    with open(env_path, encoding="utf-8") as f:
-        for line in f:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" in stripped:
-                key, _, value = stripped.partition("=")
-                key = key.strip()
-                value = value.strip()
-                if key:
-                    pairs[key] = value
-
-    if pairs:
-        set_many(pairs)
-        return True
-    return False

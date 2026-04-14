@@ -79,6 +79,7 @@ async def start_play(req: PlayRequest):
     app_state.current_lecture_url = req.lecture_url
     app_state.current_week_label = req.week_label
     app_state.current_course_name = course.long_name
+    app_state.current_course_id = course.id
     app_state.playback = PlaybackProgress(status="playing")
     app_state.is_playing = True
     log_buffer: list[str] = []
@@ -174,7 +175,9 @@ async def get_status():
     return {
         "is_playing": app_state.is_playing,
         "course_name": app_state.current_course_name,
+        "course_id": app_state.current_course_id or None,
         "lecture_title": app_state.current_lecture_title or None,
+        "lecture_url": app_state.current_lecture_url or None,
         "week_label": app_state.current_week_label or None,
         "current": pb.current,
         "duration": pb.duration,

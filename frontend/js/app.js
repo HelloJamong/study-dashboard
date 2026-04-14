@@ -54,6 +54,39 @@ function showLogin() {
   $('#login-error').classList.add('hidden');
   stopPolling();
   stopAutoPolling();
+  stopAllDownloadTaskPolling();
+}
+
+function applySettingsVisibility(form = $('#settings-form')) {
+  if (!form) return;
+  const downloadEnabled = form.elements.DOWNLOAD_ENABLED?.checked ?? state.settings.DOWNLOAD_ENABLED === 'true';
+  const autoDownload = downloadEnabled && (form.elements.AUTO_DOWNLOAD_AFTER_PLAY?.checked ?? state.settings.AUTO_DOWNLOAD_AFTER_PLAY === 'true');
+  const downloadOptions = $('#download-options');
+  const sttSection = $('#stt-settings-section');
+  const aiSection = $('#ai-settings-section');
+
+  if (downloadOptions) {
+    downloadOptions.classList.toggle('opacity-50', !downloadEnabled);
+    $$('input, select', downloadOptions).forEach(el => { el.disabled = !downloadEnabled; });
+  }
+  if (form.elements.AUTO_DOWNLOAD_AFTER_PLAY) {
+    form.elements.AUTO_DOWNLOAD_AFTER_PLAY.disabled = !downloadEnabled;
+    if (!downloadEnabled) form.elements.AUTO_DOWNLOAD_AFTER_PLAY.checked = false;
+  }
+  [sttSection, aiSection].forEach(section => {
+    if (section) section.classList.toggle('hidden', !autoDownload);
+  });
+  if (!autoDownload) {
+    if (form.elements.STT_ENABLED) form.elements.STT_ENABLED.checked = false;
+    if (form.elements.AI_ENABLED) form.elements.AI_ENABLED.checked = false;
+  }
+}
+
+async function loadAppSettings() {
+  const settings = await api('GET', '/api/settings');
+  state.settings = { ...state.settings, ...settings };
+  state.settingsLoaded = true;
+  return state.settings;
 }
 
 function showApp(userId) {
@@ -61,6 +94,7 @@ function showApp(userId) {
   $('#page-login').classList.add('hidden');
   $('#app-shell').classList.remove('hidden');
   $('#sidebar-user-id').textContent = userId;
+  loadAppSettings().catch(() => {});
   navigate('dashboard');
   startPolling();
   startAutoPolling();
@@ -182,6 +216,16 @@ async function updatePlayerUI() {
       loadStats();
       state.courses = [];
       if (state.currentPage === 'courses') loadCourses();
+      if (
+        state.settings.DOWNLOAD_ENABLED === 'true' &&
+        state.settings.AUTO_DOWNLOAD_AFTER_PLAY === 'true' &&
+        s.course_id &&
+        s.lecture_url &&
+        state.autoDownloadStartedFor !== s.lecture_url
+      ) {
+        state.autoDownloadStartedFor = s.lecture_url;
+        startAutoDownloadAfterPlayback(s, messageLog);
+      }
     }
   } catch {}
 }
@@ -359,6 +403,7 @@ function renderCourseCards(courses) {
 
 async function loadCourseDetail(courseId, courseName) {
   const weeks = $('#detail-weeks');
+  const settings = await loadAppSettings().catch(() => state.settings);
   state.currentCourseId = courseId;
   state.currentCourseName = courseName;
   navigate('course-detail');
@@ -423,6 +468,15 @@ async function loadCourseDetail(courseId, courseName) {
           playBtn.textContent = '재생';
           actions.appendChild(playBtn);
         }
+        if (settings.DOWNLOAD_ENABLED === 'true') {
+          const downloadBtn = document.createElement('button');
+          downloadBtn.className = 'btn-download-lec px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold rounded-lg transition-all';
+          downloadBtn.textContent = '영상 다운로드';
+          actions.appendChild(downloadBtn);
+          const downloadStatus = document.createElement('span');
+          downloadStatus.className = 'download-status hidden text-xs text-slate-400';
+          actions.appendChild(downloadStatus);
+        }
         if (comp === 'completed' && lec.summary && lec.summary.available && lec.summary.id) {
           row.dataset.summaryId = lec.summary.id;
           const summaryBtn = document.createElement('button');
@@ -448,6 +502,13 @@ async function loadCourseDetail(courseId, courseName) {
         await playLecture(row.dataset.course, row.dataset.url, row.dataset.title, row.dataset.week);
       });
     });
+    $$('.btn-download-lec', weeks).forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const row = btn.closest('.lecture-row');
+        await startDownload(row, btn);
+      });
+    });
     $$('.btn-summary-lec', weeks).forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -461,6 +522,144 @@ async function loadCourseDetail(courseId, courseName) {
       weeks.innerHTML = `<div class="p-6 text-red-400 text-sm">${esc(err.message)}</div>`;
     }
   }
+}
+
+function setDownloadStatus(row, message, tone = 'slate') {
+  const status = row.querySelector('.download-status');
+  if (!status) return;
+  const toneClass = {
+    slate: 'text-slate-400',
+    sky: 'text-sky-400',
+    emerald: 'text-emerald-400',
+    amber: 'text-amber-400',
+    red: 'text-red-400',
+  }[tone] || 'text-slate-400';
+  status.textContent = message;
+  status.className = `download-status text-xs ${toneClass}`;
+}
+
+function stopDownloadTaskPolling(taskId) {
+  if (state.downloadTaskTimers[taskId]) {
+    clearInterval(state.downloadTaskTimers[taskId]);
+    delete state.downloadTaskTimers[taskId];
+  }
+}
+
+function stopAllDownloadTaskPolling() {
+  Object.keys(state.downloadTaskTimers).forEach(stopDownloadTaskPolling);
+}
+
+function updateDownloadButton(button, text, disabled) {
+  button.textContent = text;
+  button.disabled = disabled;
+  button.classList.toggle('opacity-60', disabled);
+  button.classList.toggle('cursor-not-allowed', disabled);
+}
+
+async function pollDownloadTask(taskId, row, button) {
+  try {
+    const task = await api('GET', `/api/tasks/${taskId}`);
+    const pct = Number.isFinite(task.progress_pct) ? ` ${Math.round(task.progress_pct)}%` : '';
+    if (task.status === 'completed') {
+      stopDownloadTaskPolling(taskId);
+      const files = task.result?.files || [];
+      const fileText = files.length ? `완료: ${files.map(f => f.type).join(', ')}` : '다운로드 완료';
+      setDownloadStatus(row, fileText, 'emerald');
+      updateDownloadButton(button, '다시 다운로드', false);
+      return;
+    }
+    if (task.status === 'failed') {
+      stopDownloadTaskPolling(taskId);
+      setDownloadStatus(row, task.error || '다운로드 실패', 'red');
+      updateDownloadButton(button, '재시도', false);
+      return;
+    }
+    if (task.status === 'cancelled') {
+      stopDownloadTaskPolling(taskId);
+      setDownloadStatus(row, '다운로드가 취소되었습니다.', 'amber');
+      updateDownloadButton(button, '다운로드', false);
+      return;
+    }
+    setDownloadStatus(row, `${task.message || '다운로드 중...'}${pct}`, 'sky');
+  } catch (err) {
+    stopDownloadTaskPolling(taskId);
+    setDownloadStatus(row, err.message, 'red');
+    updateDownloadButton(button, '재시도', false);
+  }
+}
+
+async function startDownload(row, button) {
+  try {
+    updateDownloadButton(button, '시작 중...', true);
+    setDownloadStatus(row, '다운로드 작업을 준비하는 중입니다.', 'sky');
+    const taskId = await startDownloadPayload({
+      course_id: row.dataset.course,
+      lecture_url: row.dataset.url,
+      lecture_title: row.dataset.title,
+      week_label: row.dataset.week,
+    });
+    row.dataset.downloadTaskId = taskId;
+    updateDownloadButton(button, '다운로드 중', true);
+    await pollDownloadTask(taskId, row, button);
+    stopDownloadTaskPolling(taskId);
+    state.downloadTaskTimers[taskId] = setInterval(() => {
+      pollDownloadTask(taskId, row, button);
+    }, 1500);
+  } catch (err) {
+    setDownloadStatus(row, err.message, 'red');
+    updateDownloadButton(button, '재시도', false);
+  }
+}
+
+async function startDownloadPayload(payload) {
+  const res = await api('POST', '/api/tasks/download', payload);
+  return res.task_id;
+}
+
+function startAutoDownloadAfterPlayback(playerStatus, messageLog) {
+  messageLog.textContent = '재생 완료 후 자동 다운로드를 시작합니다.';
+  messageLog.classList.remove('hidden');
+
+  startDownloadPayload({
+    course_id: playerStatus.course_id,
+    lecture_url: playerStatus.lecture_url,
+    lecture_title: playerStatus.lecture_title,
+    week_label: playerStatus.week_label || '',
+  }).then(taskId => {
+    const update = async () => {
+      try {
+        const task = await api('GET', `/api/tasks/${taskId}`);
+        const pct = Number.isFinite(task.progress_pct) ? ` ${Math.round(task.progress_pct)}%` : '';
+        if (task.status === 'completed') {
+          stopDownloadTaskPolling(taskId);
+          const files = task.result?.files || [];
+          const fileText = files.length ? files.map(f => f.type).join(', ') : '파일';
+          messageLog.textContent = `자동 다운로드 완료: ${fileText}`;
+          return;
+        }
+        if (task.status === 'failed') {
+          stopDownloadTaskPolling(taskId);
+          messageLog.textContent = `자동 다운로드 실패: ${task.error || '알 수 없는 오류'}`;
+          return;
+        }
+        if (task.status === 'cancelled') {
+          stopDownloadTaskPolling(taskId);
+          messageLog.textContent = '자동 다운로드가 취소되었습니다.';
+          return;
+        }
+        messageLog.textContent = `자동 다운로드 중: ${task.message || task.stage}${pct}`;
+      } catch (err) {
+        stopDownloadTaskPolling(taskId);
+        messageLog.textContent = `자동 다운로드 상태 확인 실패: ${err.message}`;
+      }
+    };
+    update();
+    stopDownloadTaskPolling(taskId);
+    state.downloadTaskTimers[taskId] = setInterval(update, 1500);
+  }).catch(err => {
+    messageLog.textContent = `자동 다운로드 시작 실패: ${err.message}`;
+    messageLog.classList.remove('hidden');
+  });
 }
 
 async function playLecture(courseId, url, title, weekLabel) {
@@ -529,7 +728,7 @@ $('#btn-refresh').addEventListener('click', async () => {
 // ═══════════════════════════════════════════════════════════════
 async function loadSettings() {
   try {
-    const s = await api('GET', '/api/settings');
+    const s = await loadAppSettings();
     const form = $('#settings-form');
 
     Object.entries(s).forEach(([key, val]) => {
@@ -541,6 +740,7 @@ async function loadSettings() {
         el.value = val || '';
       }
     });
+    applySettingsVisibility(form);
   } catch {}
 }
 
@@ -559,15 +759,30 @@ $('#settings-form').addEventListener('submit', async (e) => {
       payload[el.name] = el.value.trim();
     }
   });
+  if (payload.DOWNLOAD_ENABLED !== 'true') {
+    payload.AUTO_DOWNLOAD_AFTER_PLAY = 'false';
+    payload.STT_ENABLED = 'false';
+    payload.AI_ENABLED = 'false';
+  } else if (payload.AUTO_DOWNLOAD_AFTER_PLAY !== 'true') {
+    payload.STT_ENABLED = 'false';
+    payload.AI_ENABLED = 'false';
+  }
 
   try {
     await api('PUT', '/api/settings', payload);
+    await loadAppSettings();
+    applySettingsVisibility(form);
     const msg = $('#settings-success');
     msg.classList.remove('hidden');
     setTimeout(() => msg.classList.add('hidden'), 3000);
   } catch (err) {
     alert(`저장 실패: ${err.message}`);
   }
+});
+
+['DOWNLOAD_ENABLED', 'AUTO_DOWNLOAD_AFTER_PLAY'].forEach(name => {
+  const el = $('#settings-form').elements[name];
+  if (el) el.addEventListener('change', () => applySettingsVisibility());
 });
 
 // ═══════════════════════════════════════════════════════════════

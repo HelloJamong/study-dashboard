@@ -69,14 +69,8 @@ https://api.telegram.org/bot<TOKEN>/getUpdates
 
 과목 목록 화면에서 `setting` 입력 → **텔레그램 알림 설정** 선택 후 봇 토큰과 Chat ID를 입력합니다.
 
-또는 `.env` 파일을 직접 수정합니다:
-
-```env
-TELEGRAM_ENABLED=true
-TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrSTUVwxyz
-TELEGRAM_CHAT_ID=123456789
-TELEGRAM_AUTO_DELETE=false   # true: 요약 전송 후 파일 자동 삭제
-```
+웹 대시보드에서는 **설정 → 텔레그램 알림**에서 값을 저장합니다. 설정값은 SQLite DB(`data/app.db`)에 저장되며,
+봇 토큰은 암호화됩니다.
 
 ---
 

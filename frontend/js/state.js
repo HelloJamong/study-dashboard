@@ -12,4 +12,15 @@ export const state = {
   currentCourseId: '',
   currentCourseName: '',
   currentSummaryId: '',
+  downloadTaskTimers: {},
+  settings: {
+    DOWNLOAD_ENABLED: 'false',
+    DOWNLOAD_RULE: 'mp4',
+    DOWNLOAD_DIR: '',
+    AUTO_DOWNLOAD_AFTER_PLAY: 'false',
+    STT_ENABLED: 'false',
+    AI_ENABLED: 'false',
+  },
+  settingsLoaded: false,
+  autoDownloadStartedFor: '',
 };

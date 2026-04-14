@@ -43,6 +43,7 @@ class AppState:
     current_lecture_url: str = ""
     current_week_label: str = ""
     current_course_name: str = ""
+    current_course_id: str = ""
     playback: PlaybackProgress = field(default_factory=PlaybackProgress)
     play_task: asyncio.Task | None = None
     play_task_id: str | None = None

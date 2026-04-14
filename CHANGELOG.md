@@ -25,6 +25,11 @@
   - 강의 상세 화면에서 완료+요약 존재 강의에 “요약 내용 보기” 버튼 표시
   - 요약 상세 페이지에서 AI 요약 내용을 마크다운 스타일로 렌더링
   - 마크다운 렌더러는 DOM 생성 + `textContent` 기반으로 동작해 요약 본문 HTML 주입을 방지
+- **영상 다운로드 웹 연결** (`src/downloader/pipeline.py`, `backend/api/routes/tasks.py`, `frontend/js/app.js`)
+  - `POST /api/tasks/download`로 수동 영상 다운로드 task 시작
+  - 설정값에 따라 `mp4` / `mp3` / `both` 저장 지원
+  - 완료된 강의 row에 “영상 다운로드” 버튼과 진행 상태 표시 추가
+  - 재생 완료 후 자동 다운로드 설정이 켜져 있으면 플레이어 완료 감지 시 다운로드 task 자동 시작
 
 #### 변경
 - **웹 재생/자동 모드 태스크 연결** (`backend/api/routes/player.py`, `backend/api/routes/auto.py`)
@@ -44,6 +49,18 @@
   - 강의 목록 하단 패널 대신 별도 강의 상세 페이지로 전환
   - “강의 목록으로” / “주차별 강의로” 복귀 동선 추가
   - 과목 카드에 키보드 접근성(`role="button"`, `tabindex`) 보강
+- **다운로드 설정 UI 및 저장 정책**
+  - 설정에 “영상 다운로드” ON/OFF와 “영상 재생 완료 후 자동 다운로드” ON/OFF 추가
+  - 영상 다운로드 ON일 때만 확장자 선택(`mp4` / `mp3` / `both`)과 다운로드 경로 입력 활성화
+  - 자동 다운로드 OFF일 때 STT/AI 요약 설정 섹션 숨김 및 백엔드 저장 시 `false` 강제
+  - Docker 기본 다운로드 경로를 `/download`로 정리하고 호스트 `/download` 마운트 추가
+- **`.env` 설정 잔재 제거**
+  - `.env.example` 삭제 및 `.env` 마이그레이션 코드 제거
+  - README/Gemini/Telegram 문서를 SQLite 설정 DB 기준으로 정리
+  - LMS 계정은 DB에서 자동 로드하지 않고 현재 로그인 세션 메모리에만 유지
+  - DB에 과거 LMS credential이 남아 있어도 자동 로그인하지 않도록 CLI 자동 로그인 경로 제거
+- **개발 잔재 정리**
+  - 미사용 `design-sample.html` 제거
 
 #### 테스트
 - **`tests/test_task_manager.py`**
@@ -51,12 +68,20 @@
 - **`tests/test_web_summaries.py`**
   - 강의 상세 API의 요약 파일 감지 검증
   - 요약 조회 API의 마크다운 읽기 검증
+- **`tests/test_web_download.py`**
+  - 다운로드 task 생성, 재생 중 다운로드 차단, 다운로드 비활성 설정 차단 검증
+- **`tests/test_web_settings.py`**
+  - 다운로드/자동 다운로드 토글에 따른 STT/AI 종속 설정 강제 검증
+- **`tests/test_config.py`**
+  - DB에 LMS credential이 남아 있어도 자동 로그인용으로 로드하지 않는지 검증
+  - 설정 reload가 현재 세션 메모리 credential은 유지하는지 검증
 - 기존 웹 auth/player 테스트의 app_state reset 범위를 task id/auto task까지 확장
 
 #### 검증
 - `node --check frontend/js/*.js` — 통과
-- `uv run pytest` — 45 passed
+- `uv run pytest` — 50 passed
 - `uv run ruff check .` — All checks passed
+- `docker compose config` — 통과
 
 ## [v26.04.06] - 2026-04-14
 

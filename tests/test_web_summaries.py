@@ -23,6 +23,7 @@ def _reset_app_state() -> None:
     app_state.current_lecture_url = ""
     app_state.current_week_label = ""
     app_state.current_course_name = ""
+    app_state.current_course_id = ""
     app_state.playback = PlaybackProgress()
     app_state.play_task = None
     app_state.play_task_id = None

@@ -73,7 +73,7 @@ async def login(req: LoginRequest):
 
     from src.config import Config
 
-    Config.save_credentials(req.user_id, req.password)
+    Config.set_session_credentials(req.user_id, req.password)
 
     return {"success": True, "user_id": req.user_id}
 
@@ -99,7 +99,16 @@ async def logout():
     app_state.courses = []
     app_state.details = []
     app_state.is_playing = False
+    app_state.current_lecture_title = ""
+    app_state.current_lecture_url = ""
+    app_state.current_week_label = ""
+    app_state.current_course_name = ""
+    app_state.current_course_id = ""
     app_state.auto.enabled = False
+
+    from src.config import Config
+
+    Config.clear_session_credentials()
 
     return {"success": True}
 

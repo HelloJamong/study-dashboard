@@ -22,6 +22,7 @@ def _reset_app_state() -> None:
     app_state.current_lecture_url = ""
     app_state.current_week_label = ""
     app_state.current_course_name = ""
+    app_state.current_course_id = ""
     app_state.playback = PlaybackProgress()
     app_state.play_task = None
     app_state.play_task_id = None
@@ -117,4 +118,6 @@ async def test_start_play_preserves_playback_error(monkeypatch):
     assert status["status"] == "error"
     assert status["error"] == "비디오 프레임을 찾지 못했습니다."
     assert status["log_path"] == "/tmp/web_play.log"
+    assert status["course_id"] == course.id
+    assert status["lecture_url"] == lecture.full_url
     assert lecture.completion == "incomplete"

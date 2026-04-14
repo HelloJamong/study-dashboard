@@ -22,7 +22,7 @@ _WHISPER_MODELS = ["tiny", "base", "small", "medium", "large"]
 
 def run_settings() -> None:
     """
-    설정 화면을 표시하고 결과를 Config / .env에 저장한다.
+    설정 화면을 표시하고 결과를 SQLite 설정 DB에 저장한다.
     최초 실행 또는 'setting' 입력 시 호출된다.
     """
     console.clear()
@@ -57,9 +57,8 @@ def run_settings() -> None:
 
     # ── 2. 다운로드 규칙 ─────────────────────────────────────────
     _print_section("2. 다운로드 규칙")
-    _current = {"video": "영상만 (mp4)", "audio": "음성만 (mp3)", "both": "영상 + 음성"}.get(
-        Config.DOWNLOAD_RULE, "미설정"
-    )
+    current_rule = Config.get_download_rule()
+    _current = {"mp4": "영상만 (mp4)", "mp3": "음성만 (mp3)", "both": "영상 + 음성"}.get(current_rule, "영상만 (mp4)")
     console.print(f"  [dim]현재값: {_current}[/dim]")
     console.print()
     console.print("  [bold]1.[/bold] 영상만  [dim](mp4)[/dim]")
@@ -67,14 +66,14 @@ def run_settings() -> None:
     console.print("  [bold]3.[/bold] 영상 + 음성  [dim](mp4 + mp3)[/dim]")
     console.print()
 
-    _rule_default = {"video": "1", "audio": "2", "both": "3"}.get(Config.DOWNLOAD_RULE, "1")
+    _rule_default = {"mp4": "1", "mp3": "2", "both": "3"}.get(current_rule, "1")
     rule_choice = Prompt.ask("  선택", choices=["1", "2", "3"], default=_rule_default, show_choices=False)
-    download_rule = {"1": "video", "2": "audio", "3": "both"}[rule_choice]
+    download_rule = {"1": "mp4", "2": "mp3", "3": "both"}[rule_choice]
     console.print()
 
     # ── 2.1. STT (텍스트 변환) — 영상만이 아닌 경우만 ─────────────
     stt_enabled = False
-    if download_rule != "video":
+    if download_rule != "mp4":
         _print_section("2.1. 텍스트 변환 (STT)")
         console.print("  [dim]음성에서 텍스트를 추출합니다 (Whisper 로컬 실행).[/dim]")
         _stt_default = "y" if Config.STT_ENABLED == "true" else "n"
@@ -92,7 +91,7 @@ def run_settings() -> None:
             )
             stt_language = "" if lang_choice == "auto" else lang_choice
             Config.STT_LANGUAGE = stt_language
-            Config._save_env({"STT_LANGUAGE": stt_language})
+            Config._save_settings_values({"STT_LANGUAGE": stt_language})
             console.print()
 
             _print_section("  Whisper 모델 크기")
@@ -107,7 +106,7 @@ def run_settings() -> None:
                 "  모델 선택", choices=[str(i) for i in range(1, 6)], default=_model_default, show_choices=False
             )
             Config.WHISPER_MODEL = _WHISPER_MODELS[int(model_choice) - 1]
-            Config._save_env({"WHISPER_MODEL": Config.WHISPER_MODEL})
+            Config._save_settings_values({"WHISPER_MODEL": Config.WHISPER_MODEL})
         console.print()
 
     # ── 3. AI 요약 ───────────────────────────────────────────────
@@ -280,13 +279,13 @@ def _print_summary(
     tg_enabled: bool = False,
 ) -> None:
     """설정 요약을 표시한다."""
-    rule_label = {"video": "영상만 (mp4)", "audio": "음성만 (mp3)", "both": "영상 + 음성"}.get(
+    rule_label = {"mp4": "영상만 (mp4)", "mp3": "음성만 (mp3)", "both": "영상 + 음성"}.get(
         download_rule, download_rule
     )
     console.print("  [dim]─────────────────────────────[/dim]")
     console.print(f"  다운로드 경로  : [cyan]{download_dir}[/cyan]")
     console.print(f"  다운로드 규칙  : [cyan]{rule_label}[/cyan]")
-    if download_rule != "video":
+    if download_rule != "mp4":
         console.print(f"  STT 변환      : [cyan]{'사용' if stt_enabled else '미사용'}[/cyan]")
     console.print(f"  AI 요약       : [cyan]{'사용' if ai_enabled else '미사용'}[/cyan]")
     if ai_enabled and gemini_model:

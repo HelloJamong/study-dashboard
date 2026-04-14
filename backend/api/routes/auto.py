@@ -100,6 +100,7 @@ async def _run_auto_cycle(schedule_hours: list[int]) -> None:
         app_state.current_lecture_url = lec.full_url
         app_state.current_week_label = lec.week_label
         app_state.current_course_name = course.long_name
+        app_state.current_course_id = course.id
         app_state.playback = PlaybackProgress(status="playing")
         app_state.is_playing = True
 

@@ -23,6 +23,9 @@ def _default_download_dir() -> str:
     """OS별 기본 다운로드 경로를 반환한다."""
     if sys.platform == "win32":
         return str(Path.home() / "Downloads")
+    # Docker 컨테이너 환경: 호스트 /download 볼륨을 /download로 마운트한 경우 사용
+    if Path("/download").exists() and str(Path.home()) == "/root":
+        return "/download"
     # Docker 컨테이너 환경: /data 볼륨이 마운트된 경우 사용
     if Path("/data").exists() and str(Path.home()) == "/root":
         return "/data/downloads"
@@ -47,6 +50,20 @@ def _read_version() -> str:
 
 APP_VERSION = _read_version()
 
+_DOWNLOAD_RULE_ALIASES = {
+    "": "mp4",
+    "video": "mp4",
+    "mp4": "mp4",
+    "audio": "mp3",
+    "mp3": "mp3",
+    "both": "both",
+}
+
+
+def normalize_download_rule(rule: str | None) -> str:
+    """다운로드 규칙을 웹 표준값(mp4/mp3/both)으로 정규화한다."""
+    return _DOWNLOAD_RULE_ALIASES.get((rule or "").strip().lower(), "mp4")
+
 
 def get_data_path(filename: str) -> Path:
     """데이터 파일 경로를 반환한다. Docker(/data) 또는 로컬(data/)."""
@@ -62,8 +79,10 @@ class Config:
     GOOGLE_API_KEY: str = ""
     WHISPER_MODEL: str = "base"
     STT_LANGUAGE: str = "ko"
+    DOWNLOAD_ENABLED: str = ""
     DOWNLOAD_DIR: str = ""
-    DOWNLOAD_RULE: str = ""
+    DOWNLOAD_RULE: str = "mp4"
+    AUTO_DOWNLOAD_AFTER_PLAY: str = ""
     STT_ENABLED: str = ""
     AI_ENABLED: str = ""
     AI_AGENT: str = ""
@@ -77,14 +96,20 @@ class Config:
     @classmethod
     def load(cls) -> None:
         """DB에서 모든 설정을 로드한다. 앱 시작 시 반드시 1회 호출."""
-        cls.LMS_USER_ID = _load_credential("LMS_USER_ID")
-        cls.LMS_PASSWORD = _load_credential("LMS_PASSWORD")
+        session_user_id = cls.LMS_USER_ID
+        session_password = cls.LMS_PASSWORD
+        # 보안상 LMS 계정은 DB에서 자동 로드하지 않는다.
+        # 로그인 폼/CUI 입력으로 받은 값만 현재 프로세스 메모리에 유지한다.
+        cls.LMS_USER_ID = session_user_id
+        cls.LMS_PASSWORD = session_password
         cls.GOOGLE_API_KEY = _load_credential("GOOGLE_API_KEY")
         cls.TELEGRAM_BOT_TOKEN = _load_credential("TELEGRAM_BOT_TOKEN")
         cls.WHISPER_MODEL = db.get("WHISPER_MODEL", "base")
         cls.STT_LANGUAGE = db.get("STT_LANGUAGE", "ko")
+        cls.DOWNLOAD_ENABLED = db.get("DOWNLOAD_ENABLED", "false")
         cls.DOWNLOAD_DIR = db.get("DOWNLOAD_DIR", "")
-        cls.DOWNLOAD_RULE = db.get("DOWNLOAD_RULE", "")
+        cls.DOWNLOAD_RULE = normalize_download_rule(db.get("DOWNLOAD_RULE", "mp4"))
+        cls.AUTO_DOWNLOAD_AFTER_PLAY = db.get("AUTO_DOWNLOAD_AFTER_PLAY", "false")
         cls.STT_ENABLED = db.get("STT_ENABLED", "")
         cls.AI_ENABLED = db.get("AI_ENABLED", "")
         cls.AI_AGENT = db.get("AI_AGENT", "")
@@ -104,18 +129,27 @@ class Config:
         return cls.TELEGRAM_BOT_TOKEN, cls.TELEGRAM_CHAT_ID
 
     @classmethod
-    def has_credentials(cls) -> bool:
-        return bool(cls.LMS_USER_ID and cls.LMS_PASSWORD)
-
-    @classmethod
     def has_settings(cls) -> bool:
         """최초 설정이 완료됐는지 확인 (다운로드 규칙 기준)."""
-        return bool(cls.DOWNLOAD_RULE)
+        return bool(cls.get_download_rule())
 
     @classmethod
     def get_download_dir(cls) -> str:
         """저장된 경로가 없으면 OS 기본 다운로드 폴더를 반환한다."""
         return cls.DOWNLOAD_DIR or _default_download_dir()
+
+    @classmethod
+    def get_download_rule(cls) -> str:
+        """다운로드 규칙을 mp4/mp3/both 중 하나로 정규화해 반환한다."""
+        return normalize_download_rule(cls.DOWNLOAD_RULE)
+
+    @classmethod
+    def is_download_enabled(cls) -> bool:
+        return cls.DOWNLOAD_ENABLED == "true"
+
+    @classmethod
+    def is_auto_download_after_play_enabled(cls) -> bool:
+        return cls.is_download_enabled() and cls.AUTO_DOWNLOAD_AFTER_PLAY == "true"
 
     @classmethod
     def save_settings(
@@ -128,10 +162,20 @@ class Config:
         api_key: str,
         gemini_model: str = "",
         summary_prompt_extra: str = "",
+        download_enabled: bool = True,
+        auto_download_after_play: bool = True,
     ) -> None:
         """설정 항목을 DB에 저장한다."""
+        auto_download_after_play = auto_download_after_play and download_enabled
+        stt_enabled = stt_enabled and auto_download_after_play
+        ai_enabled = ai_enabled and auto_download_after_play
+        if not auto_download_after_play:
+            ai_enabled = False
+
+        cls.DOWNLOAD_ENABLED = "true" if download_enabled else "false"
         cls.DOWNLOAD_DIR = download_dir
-        cls.DOWNLOAD_RULE = download_rule
+        cls.DOWNLOAD_RULE = normalize_download_rule(download_rule)
+        cls.AUTO_DOWNLOAD_AFTER_PLAY = "true" if auto_download_after_play else "false"
         cls.STT_ENABLED = "true" if stt_enabled else "false"
         cls.AI_ENABLED = "true" if ai_enabled else "false"
         cls.AI_AGENT = ai_agent
@@ -141,7 +185,9 @@ class Config:
 
         to_save: dict = {
             "DOWNLOAD_DIR": download_dir,
-            "DOWNLOAD_RULE": download_rule,
+            "DOWNLOAD_RULE": cls.DOWNLOAD_RULE,
+            "DOWNLOAD_ENABLED": cls.DOWNLOAD_ENABLED,
+            "AUTO_DOWNLOAD_AFTER_PLAY": cls.AUTO_DOWNLOAD_AFTER_PLAY,
             "STT_ENABLED": cls.STT_ENABLED,
             "AI_ENABLED": cls.AI_ENABLED,
             "AI_AGENT": ai_agent,
@@ -172,19 +218,19 @@ class Config:
         )
 
     @classmethod
-    def save_credentials(cls, user_id: str, password: str) -> None:
-        """계정 정보를 암호화해서 DB에 저장."""
+    def set_session_credentials(cls, user_id: str, password: str) -> None:
+        """현재 프로세스 세션에서만 LMS 계정 정보를 보관한다."""
         cls.LMS_USER_ID = user_id
         cls.LMS_PASSWORD = password
-        db.set_many(
-            {
-                "LMS_USER_ID": encrypt(user_id),
-                "LMS_PASSWORD": encrypt(password),
-            }
-        )
 
     @classmethod
-    def _save_env(cls, keys_to_update: dict) -> None:
+    def clear_session_credentials(cls) -> None:
+        """메모리에 보관 중인 LMS 계정 정보를 지운다."""
+        cls.LMS_USER_ID = ""
+        cls.LMS_PASSWORD = ""
+
+    @classmethod
+    def _save_settings_values(cls, keys_to_update: dict) -> None:
         """지정한 키/값을 DB에 저장한다.
 
         settings.py 등에서 직접 호출하는 경우를 위해 유지.
