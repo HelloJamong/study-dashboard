@@ -57,6 +57,7 @@ def run_settings() -> None:
 
     # ── 1.1. STT (텍스트 변환) — 영상만이 아닌 경우만 ─────────────
     stt_enabled = False
+    stt_delete_audio_after_transcribe = False
     if download_rule != "mp4":
         _print_section("1.1. 텍스트 변환 (STT)")
         console.print("  [dim]음성에서 텍스트를 추출합니다 (Whisper 로컬 실행).[/dim]")
@@ -91,11 +92,18 @@ def run_settings() -> None:
             )
             Config.WHISPER_MODEL = _WHISPER_MODELS[int(model_choice) - 1]
             Config._save_settings_values({"WHISPER_MODEL": Config.WHISPER_MODEL})
+
+            _print_section("  STT 후 mp3 삭제")
+            console.print("  [dim]STT 변환 성공 후 생성된 mp3 파일을 삭제합니다.[/dim]")
+            _delete_default = "y" if Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE == "true" else "n"
+            delete_choice = Prompt.ask("  mp3 삭제", choices=["y", "n"], default=_delete_default, show_choices=True)
+            stt_delete_audio_after_transcribe = delete_choice == "y"
         console.print()
 
     # ── 2. AI 요약 ───────────────────────────────────────────────
     _print_section("2. AI 요약")
     console.print("  [dim]STT로 변환된 텍스트를 AI로 자동 요약합니다.[/dim]")
+    console.print("  [dim]Gemini API 키와 모델 설정이 있어야 사용할 수 있습니다.[/dim]")
     console.print("  [dim]현재 Gemini API를 지원합니다 (무료 티어 사용 가능).[/dim]")
     console.print()
     _ai_default = "y" if Config.AI_ENABLED == "true" else "n"
@@ -106,6 +114,7 @@ def run_settings() -> None:
     ai_agent = "gemini"
     api_key = ""
     gemini_model = Config.GEMINI_MODEL or GEMINI_DEFAULT_MODEL
+    summary_prompt_template = Config.get_summary_prompt_template()
     summary_prompt_extra = Config.SUMMARY_PROMPT_EXTRA
 
     if ai_enabled:
@@ -163,6 +172,19 @@ def run_settings() -> None:
             else:
                 summary_prompt_extra = Config.SUMMARY_PROMPT_EXTRA
             console.print()
+
+            _print_section("2.4. AI 요약 후 원본 txt 삭제")
+            console.print("  [dim]AI 요약 성공 후 STT 원본 텍스트 파일을 삭제합니다.[/dim]")
+            _delete_txt_default = "y" if Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE == "true" else "n"
+            delete_txt_choice = Prompt.ask(
+                "  원본 txt 삭제", choices=["y", "n"], default=_delete_txt_default, show_choices=True
+            )
+            summary_delete_text_after_summarize = delete_txt_choice == "y"
+            console.print()
+        else:
+            summary_delete_text_after_summarize = False
+    else:
+        summary_delete_text_after_summarize = False
 
     # ── 3. 텔레그램 알림 ─────────────────────────────────────────
     _print_section("3. 텔레그램 알림")
@@ -231,7 +253,10 @@ def run_settings() -> None:
         ai_agent=ai_agent,
         api_key=api_key,
         gemini_model=gemini_model,
+        summary_prompt_template=summary_prompt_template,
         summary_prompt_extra=summary_prompt_extra,
+        stt_delete_audio_after_transcribe=stt_delete_audio_after_transcribe,
+        summary_delete_text_after_summarize=summary_delete_text_after_summarize,
     )
     Config.save_telegram(
         enabled=tg_enabled,

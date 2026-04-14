@@ -102,6 +102,79 @@ def test_config_ignores_saved_download_dir(tmp_path):
     assert Config.get_download_dir() == "/download"
 
 
+def test_config_loads_stt_delete_audio_option(tmp_path):
+    """STT 후 mp3 삭제 옵션을 DB에서 로드한다."""
+    import src.db as db
+    from src.config import Config
+
+    with _make_db(tmp_path):
+        db.set_many(
+            {
+                "DOWNLOAD_ENABLED": "true",
+                "DOWNLOAD_RULE": "mp3",
+                "STT_ENABLED": "true",
+                "STT_DELETE_AUDIO_AFTER_TRANSCRIBE": "true",
+            }
+        )
+        Config.load()
+
+    assert Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE == "true"
+
+
+def test_config_load_disables_stt_for_mp4_rule(tmp_path):
+    """mp4 다운로드 규칙에서는 저장된 STT 옵션도 비활성으로 정규화한다."""
+    import src.db as db
+    from src.config import Config
+
+    with _make_db(tmp_path):
+        db.set_many(
+            {
+                "DOWNLOAD_ENABLED": "true",
+                "DOWNLOAD_RULE": "mp4",
+                "STT_ENABLED": "true",
+                "STT_DELETE_AUDIO_AFTER_TRANSCRIBE": "true",
+                "AI_ENABLED": "true",
+            }
+        )
+        Config.load()
+
+    assert Config.STT_ENABLED == "false"
+    assert Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE == "false"
+    assert Config.AI_ENABLED == "false"
+
+
+def test_config_load_disables_ai_without_gemini_key_or_model(tmp_path):
+    """AI 요약은 Gemini API 키와 모델 설정이 모두 있어야 활성화된다."""
+    import src.db as db
+    from src.config import Config
+
+    with _make_db(tmp_path):
+        db.set_many(
+            {
+                "DOWNLOAD_ENABLED": "true",
+                "DOWNLOAD_RULE": "mp3",
+                "STT_ENABLED": "true",
+                "AI_ENABLED": "true",
+                "SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE": "true",
+            }
+        )
+        Config.load()
+
+    assert Config.AI_ENABLED == "false"
+    assert Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE == "false"
+
+
+def test_config_loads_default_summary_prompt(tmp_path):
+    """요약 프롬프트 설정이 없으면 기본 프롬프트를 사용한다."""
+    from src.config import Config
+    from src.summarizer.summarizer import DEFAULT_SUMMARY_PROMPT
+
+    with _make_db(tmp_path):
+        Config.load()
+
+    assert Config.get_summary_prompt_template() == DEFAULT_SUMMARY_PROMPT
+
+
 def test_db_set_many(tmp_path):
     """set_many로 여러 값을 한 번에 저장한다."""
     import src.db as db

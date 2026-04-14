@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,17 @@ async def download_lecture_media(
     course_name: str,
     download_dir: str,
     rule: str,
+    stt_enabled: bool = False,
+    stt_model: str = "base",
+    stt_language: str = "",
+    delete_audio_after_stt: bool = False,
+    ai_enabled: bool = False,
+    ai_agent: str = "gemini",
+    ai_api_key: str = "",
+    ai_model: str = "",
+    summary_prompt_template: str = "",
+    summary_prompt_extra: str = "",
+    delete_text_after_summary: bool = False,
     on_stage: StageCallback | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
@@ -92,6 +104,7 @@ async def download_lecture_media(
     await download_video_with_browser(page, video_url, mp4_path, on_progress=progress)
 
     files: list[dict[str, str]] = []
+    mp3_file: dict[str, str] | None = None
     mp3_path: Path | None = None
     if normalized_rule in {"mp4", "both"}:
         files.append({"type": "mp4", "path": str(mp4_path)})
@@ -100,13 +113,79 @@ async def download_lecture_media(
         stage("converting", "mp3 파일로 변환하는 중입니다.", 90)
         loop = asyncio.get_running_loop()
         mp3_path = await loop.run_in_executor(None, convert_to_mp3, mp4_path)
-        files.append({"type": "mp3", "path": str(mp3_path)})
+        mp3_file = {"type": "mp3", "path": str(mp3_path)}
+        files.append(mp3_file)
         if normalized_rule == "mp3":
             mp4_path.unlink(missing_ok=True)
+
+    stt_result: dict[str, Any] = {"enabled": False}
+    summary_result: dict[str, Any] = {"enabled": False}
+    if stt_enabled and normalized_rule in {"mp3", "both"} and mp3_path:
+        stage("transcribing", "STT 변환 중입니다.", 95)
+        from src.stt.transcriber import transcribe
+
+        loop = asyncio.get_running_loop()
+        txt_path = await loop.run_in_executor(
+            None,
+            partial(transcribe, mp3_path, model_size=stt_model or "base", language=stt_language or ""),
+        )
+        files.append({"type": "txt", "path": str(txt_path)})
+        audio_deleted = False
+        if delete_audio_after_stt:
+            mp3_path.unlink(missing_ok=True)
+            audio_deleted = True
+            if mp3_file is not None:
+                mp3_file["deleted"] = "true"
+        stt_result = {
+            "enabled": True,
+            "status": "completed",
+            "txt_path": str(txt_path),
+            "audio_path": str(mp3_path),
+            "audio_deleted": audio_deleted,
+            "model": stt_model or "base",
+            "language": stt_language or "",
+        }
+        if ai_enabled and ai_api_key and ai_model:
+            stage("summarizing", "AI 요약 중입니다.", 98)
+            from src.summarizer.summarizer import summarize
+
+            loop = asyncio.get_running_loop()
+            summary_path = await loop.run_in_executor(
+                None,
+                partial(
+                    summarize,
+                    txt_path,
+                    agent=ai_agent or "gemini",
+                    api_key=ai_api_key,
+                    model=ai_model,
+                    prompt_template=summary_prompt_template or "",
+                    extra_prompt=summary_prompt_extra or "",
+                    course_name=course_name,
+                ),
+            )
+            files.append({"type": "summary", "path": str(summary_path)})
+            text_deleted = False
+            if delete_text_after_summary:
+                txt_path.unlink(missing_ok=True)
+                text_deleted = True
+                for file in files:
+                    if file.get("type") == "txt" and file.get("path") == str(txt_path):
+                        file["deleted"] = "true"
+            summary_result = {
+                "enabled": True,
+                "status": "completed",
+                "summary_path": str(summary_path),
+                "txt_path": str(txt_path),
+                "text_deleted": text_deleted,
+                "agent": ai_agent or "gemini",
+                "model": ai_model,
+            }
 
     stage("completed", "다운로드가 완료되었습니다.", 100)
     return {
         "download_rule": normalized_rule,
         "download_dir": str(base_dir),
         "files": files,
+        "stt": stt_result,
+        "summary": summary_result,
     }

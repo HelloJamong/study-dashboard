@@ -3,6 +3,11 @@ import { renderMarkdown } from './markdown.js';
 import { state } from './state.js';
 import { $, $$, esc, fmtTime } from './utils.js';
 
+function autoResizeTextarea(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 페이지 라우팅
 // ═══════════════════════════════════════════════════════════════
@@ -62,10 +67,15 @@ function showLogin() {
 function applySettingsVisibility(form = $('#settings-form')) {
   if (!form) return;
   const downloadEnabled = form.elements.DOWNLOAD_ENABLED?.checked ?? state.settings.DOWNLOAD_ENABLED === 'true';
-  const autoDownload = downloadEnabled && (form.elements.AUTO_DOWNLOAD_AFTER_PLAY?.checked ?? state.settings.AUTO_DOWNLOAD_AFTER_PLAY === 'true');
+  const downloadRule = form.elements.DOWNLOAD_RULE?.value || state.settings.DOWNLOAD_RULE || 'mp4';
+  const sttSupported = downloadEnabled && ['mp3', 'both'].includes(downloadRule);
+  const sttEnabled = sttSupported && (form.elements.STT_ENABLED?.checked ?? state.settings.STT_ENABLED === 'true');
   const downloadOptions = $('#download-options');
   const sttSection = $('#stt-settings-section');
+  const sttWarning = $('#stt-rule-warning');
+  const sttDeleteRow = $('#stt-delete-audio-row');
   const aiSection = $('#ai-settings-section');
+  const summaryDeleteTextRow = $('#summary-delete-text-row');
 
   if (downloadOptions) {
     downloadOptions.classList.toggle('opacity-50', !downloadEnabled);
@@ -75,13 +85,29 @@ function applySettingsVisibility(form = $('#settings-form')) {
     form.elements.AUTO_DOWNLOAD_AFTER_PLAY.disabled = !downloadEnabled;
     if (!downloadEnabled) form.elements.AUTO_DOWNLOAD_AFTER_PLAY.checked = false;
   }
-  [sttSection, aiSection].forEach(section => {
-    if (section) section.classList.toggle('hidden', !autoDownload);
-  });
-  if (!autoDownload) {
-    if (form.elements.STT_ENABLED) form.elements.STT_ENABLED.checked = false;
-    if (form.elements.AI_ENABLED) form.elements.AI_ENABLED.checked = false;
+  if (sttSection) {
+    sttSection.classList.toggle('hidden', !downloadEnabled);
+    sttSection.classList.toggle('opacity-60', downloadEnabled && !sttSupported);
+    $$('input, select', sttSection).forEach(el => { el.disabled = !sttSupported; });
   }
+  if (sttWarning) sttWarning.classList.toggle('hidden', sttSupported || !downloadEnabled);
+  if (!sttSupported) {
+    if (form.elements.STT_ENABLED) form.elements.STT_ENABLED.checked = false;
+    if (form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE) form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE.checked = false;
+  }
+  if (form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE) {
+    form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE.disabled = !sttEnabled;
+    if (!sttEnabled) form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE.checked = false;
+  }
+  if (sttDeleteRow) sttDeleteRow.classList.toggle('opacity-50', !sttEnabled);
+  if (aiSection) aiSection.classList.toggle('hidden', !sttEnabled);
+  if (!sttEnabled && form.elements.AI_ENABLED) form.elements.AI_ENABLED.checked = false;
+  const aiEnabled = sttEnabled && (form.elements.AI_ENABLED?.checked ?? state.settings.AI_ENABLED === 'true');
+  if (form.elements.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE) {
+    form.elements.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE.disabled = !aiEnabled;
+    if (!aiEnabled) form.elements.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE.checked = false;
+  }
+  if (summaryDeleteTextRow) summaryDeleteTextRow.classList.toggle('opacity-50', !aiEnabled);
 }
 
 async function loadAppSettings() {
@@ -714,6 +740,8 @@ const LOG_TYPE_LABELS = {
   settings: '설정 변경',
   player: '영상 재생',
   download: '다운로드',
+  stt: 'STT',
+  summary: 'AI 요약',
 };
 
 const LOG_EVENT_LABELS = {
@@ -721,6 +749,8 @@ const LOG_EVENT_LABELS = {
   settings: '설정',
   player: '재생',
   download: '다운로드',
+  stt: 'STT',
+  summary: 'AI 요약',
 };
 
 const LOG_ACTION_LABELS = {
@@ -737,6 +767,10 @@ const LOG_ACTION_LABELS = {
   download_failed: '다운로드 실패',
   download_unsupported: '다운로드 미지원',
   download_cancel: '다운로드 취소',
+  transcribe_complete: 'STT 완료',
+  transcribe_failed: 'STT 실패',
+  summary_complete: '요약 완료',
+  summary_failed: '요약 실패',
 };
 
 function updateLogMenuState(open = state.currentPage === 'logs') {
@@ -914,6 +948,15 @@ async function loadSettings() {
         el.value = val || '';
       }
     });
+    const modelSelect = form.elements['GEMINI_MODEL'];
+    if (modelSelect && !modelSelect.value) modelSelect.value = 'gemini-2.5-flash';
+    const prompt = $('#summary-prompt-template');
+    if (prompt) {
+      prompt.value = s.SUMMARY_PROMPT_TEMPLATE || s.SUMMARY_PROMPT_DEFAULT || '';
+      prompt.readOnly = true;
+      $('#btn-summary-prompt-edit').textContent = '편집';
+      autoResizeTextarea(prompt);
+    }
     applySettingsVisibility(form);
   } catch {}
 }
@@ -925,7 +968,7 @@ $('#settings-form').addEventListener('submit', async (e) => {
 
   new FormData(form); // trigger validation
 
-  $$('input, select', form).forEach(el => {
+  $$('input, select, textarea', form).forEach(el => {
     if (!el.name) return;
     if (el.type === 'checkbox') {
       payload[el.name] = el.checked ? 'true' : 'false';
@@ -936,10 +979,20 @@ $('#settings-form').addEventListener('submit', async (e) => {
   if (payload.DOWNLOAD_ENABLED !== 'true') {
     payload.AUTO_DOWNLOAD_AFTER_PLAY = 'false';
     payload.STT_ENABLED = 'false';
+    payload.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = 'false';
     payload.AI_ENABLED = 'false';
-  } else if (payload.AUTO_DOWNLOAD_AFTER_PLAY !== 'true') {
+    payload.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = 'false';
+  } else if (!['mp3', 'both'].includes(payload.DOWNLOAD_RULE || 'mp4')) {
     payload.STT_ENABLED = 'false';
+    payload.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = 'false';
     payload.AI_ENABLED = 'false';
+    payload.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = 'false';
+  } else if (payload.STT_ENABLED !== 'true') {
+    payload.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = 'false';
+    payload.AI_ENABLED = 'false';
+    payload.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = 'false';
+  } else if (payload.AI_ENABLED !== 'true') {
+    payload.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = 'false';
   }
 
   try {
@@ -954,9 +1007,28 @@ $('#settings-form').addEventListener('submit', async (e) => {
   }
 });
 
-['DOWNLOAD_ENABLED', 'AUTO_DOWNLOAD_AFTER_PLAY'].forEach(name => {
+['DOWNLOAD_ENABLED', 'DOWNLOAD_RULE', 'AUTO_DOWNLOAD_AFTER_PLAY', 'STT_ENABLED', 'AI_ENABLED'].forEach(name => {
   const el = $('#settings-form').elements[name];
   if (el) el.addEventListener('change', () => applySettingsVisibility());
+});
+
+$('#btn-summary-prompt-reset').addEventListener('click', () => {
+  const prompt = $('#summary-prompt-template');
+  prompt.value = state.settings.SUMMARY_PROMPT_DEFAULT || '';
+  prompt.readOnly = true;
+  $('#btn-summary-prompt-edit').textContent = '편집';
+  autoResizeTextarea(prompt);
+});
+
+$('#btn-summary-prompt-edit').addEventListener('click', () => {
+  const prompt = $('#summary-prompt-template');
+  prompt.readOnly = !prompt.readOnly;
+  $('#btn-summary-prompt-edit').textContent = prompt.readOnly ? '편집' : '편집 완료';
+  if (!prompt.readOnly) prompt.focus();
+});
+
+$('#summary-prompt-template').addEventListener('input', function () {
+  autoResizeTextarea(this);
 });
 
 // ═══════════════════════════════════════════════════════════════

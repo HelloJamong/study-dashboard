@@ -24,8 +24,8 @@
 - [ ] 브라우저 기반 수동 검증: 재생 성공/실패/중지, 다운로드 mp4/mp3/both, 자동 모드 ON/OFF
 - [ ] CORS 정책과 `GET /api/player/status` 공개 여부 정리
 - [ ] 다운로드 완료 파일 경로 표시
-- [ ] STT 웹 task/API/UI 연결
-- [ ] AI 요약 생성 웹 task/API/UI 연결 및 `SUMMARY_PROMPT_EXTRA` 웹 textarea 추가
+- [ ] STT 결과 텍스트 보기/모델 로딩 상세 표시
+- [ ] AI 요약 결과 보기 UI 고도화
 - [ ] 요약 목록 대시보드(`GET /api/summaries` 포함) 구현
 - [ ] 자동 모드 pipeline에 다운로드/STT/요약/텔레그램 step 연결
 - [ ] 전체 학기 과목 조회/전환 API와 UI 완성
@@ -90,6 +90,38 @@
 - [x] ~~전체/로그인·로그아웃/설정 변경/영상 재생/다운로드 로그 웹 조회 페이지 추가~~
 - [x] ~~행위 로그 단위/라우트 테스트 추가~~
 
+## 0.3 STT 다운로드 파이프라인 구현 완료
+
+- [x] ~~다운로드 규칙이 `mp3` 또는 `mp4 + mp3`일 때만 STT 사용 가능하도록 제한~~
+- [x] ~~웹 설정에 `STT 변환 후 mp3 삭제` 토글 추가~~
+- [x] ~~백엔드 설정 저장 시 `mp4` 규칙에서는 STT/AI/STT 후 삭제 옵션을 자동 비활성화~~
+- [x] ~~다운로드 task 완료 후 STT 변환 step 연결~~
+- [x] ~~STT 변환 성공 시 `.txt` 파일을 task result에 포함~~
+- [x] ~~STT 변환 성공 후 옵션에 따라 생성된 mp3 파일 삭제~~
+- [x] ~~STT 성공/실패 DB 행위 로그 기록~~
+- [x] ~~Whisper 모델과 STT 언어 설정을 웹 다운로드 task에 반영~~
+
+## 0.4 AI 요약 파이프라인 구현 완료
+
+- [x] ~~Gemini API 키와 모델 설정이 있을 때만 AI 요약 활성화~~
+- [x] ~~STT 변환 성공 후 Gemini 요약 자동 실행~~
+- [x] ~~웹 설정에 `AI 요약 후 원본 txt 삭제` 토글 추가~~
+- [x] ~~요약 성공 시 `_summarized.txt` 파일을 task result에 포함~~
+- [x] ~~요약 성공 후 옵션에 따라 STT 원본 txt 파일 삭제~~
+- [x] ~~AI 요약 성공/실패 DB 행위 로그 기록~~
+- [x] ~~로그 조회 메뉴에 AI 요약 필터 추가~~
+- [x] ~~Gemini 모델/추가 프롬프트 설정을 웹 다운로드 task에 반영~~
+
+## 0.5 AI 요약 프롬프트 편집 UI 구현 완료
+
+- [x] ~~웹 AI 요약 설정에 현재 요약 프롬프트 textarea 표시~~
+- [x] ~~요약 프롬프트 편집 버튼 추가~~
+- [x] ~~요약 프롬프트 초기화 버튼 추가~~
+- [x] ~~초기화 시 기본 프롬프트(`DEFAULT_SUMMARY_PROMPT`)로 복원~~
+- [x] ~~편집된 프롬프트를 `SUMMARY_PROMPT_TEMPLATE` 설정으로 저장~~
+- [x] ~~다운로드→STT→AI 요약 pipeline에 사용자 프롬프트 템플릿 반영~~
+- [x] ~~프롬프트 내 `{text}` placeholder에 STT 원문 삽입 지원~~
+
 
 ---
 
@@ -139,11 +171,11 @@
 - [ ] 재생 완료 후 통계 갱신 확인
 - [ ] 재생 완료 후 강의 목록 완료 표시 확인
 - [x] ~~`uv run pytest` 통과~~
-  - 2026-04-14: `62 passed`
+  - 2026-04-14: `76 passed`
 - [x] ~~`uv run ruff check .` 통과~~
   - 2026-04-14: `All checks passed!`
 - [x] ~~`uv run ruff format --check .` 통과~~
-  - 2026-04-14: `64 files already formatted`
+  - 2026-04-14: `65 files already formatted`
 
 ---
 
@@ -287,7 +319,7 @@
 - [ ] URL 추출 실패 케이스 UI 표시 확인
 - [ ] 다운로드 중 브라우저/페이지 상태 충돌 여부 확인
 - [x] ~~`uv run pytest` 통과~~
-  - 2026-04-14: `62 passed`
+  - 2026-04-14: `76 passed`
 - [x] ~~`uv run ruff check .` 통과~~
   - 2026-04-14: `All checks passed!`
 
@@ -299,27 +331,30 @@
 
 ### 6.1 백엔드 STT API/Task
 
-- [ ] 다운로드 task 이후 STT step으로 연결
-- [ ] 단독 STT 실행 API 필요 여부 결정
-- [ ] STT 진행 상태 표시 방식 결정
+- [x] ~~다운로드 task 이후 STT step으로 연결~~
+- [x] ~~단독 STT 실행 API 필요 여부 결정~~
+  - 결정: 우선 다운로드 task pipeline에 통합하고 단독 API는 보류
+- [x] ~~STT 진행 상태 표시 방식 결정~~
   - faster-whisper segment 기반 progress 가능 여부 검토
-  - 최소 current step 표시
+  - [x] ~~최소 current step 표시~~
 - [ ] Whisper 모델 로딩 상태 표시
-- [ ] STT 결과 `.txt` 파일 경로 저장
+- [x] ~~STT 결과 `.txt` 파일 경로 저장~~
 
 ### 6.2 프론트 STT UI
 
-- [ ] 강의별 STT 실행 상태 표시
-- [ ] STT 변환 중/완료/실패 표시
+- [x] ~~강의별 STT 실행 상태 표시~~
+  - 다운로드 task 상태 메시지로 `STT 변환 중` 표시
+- [x] ~~STT 변환 중/완료/실패 표시~~
 - [ ] STT 결과 텍스트 보기 기능 추가 여부 결정
-- [ ] STT 설정이 꺼져 있을 때 안내 표시
+- [x] ~~STT 설정이 꺼져 있거나 다운로드 규칙이 mp4일 때 안내 표시~~
 
 ### 6.3 검증
 
-- [ ] `STT_ENABLED=true`에서 STT 실행 확인
-- [ ] `STT_ENABLED=false`에서 STT skip 확인
-- [ ] `WHISPER_MODEL` 설정 반영 확인
-- [ ] `STT_LANGUAGE` 설정 반영 확인
+- [x] ~~`STT_ENABLED=true`에서 STT 실행 확인~~
+  - 검증: 다운로드 파이프라인/웹 다운로드 route 테스트
+- [x] ~~`STT_ENABLED=false`에서 STT skip 확인~~
+- [x] ~~`WHISPER_MODEL` 설정 반영 확인~~
+- [x] ~~`STT_LANGUAGE` 설정 반영 확인~~
 - [ ] STT 실패 시 다음 step 처리 정책 확인
 
 ---
@@ -330,12 +365,15 @@
 
 ### 7.1 백엔드 요약 API/Task
 
-- [ ] STT 결과 `.txt`를 입력으로 요약 step 연결
-- [ ] 단독 요약 실행 API 필요 여부 결정
-- [ ] 요약 진행 상태 표시
-- [ ] 요약 결과 파일 저장 경로 정책 정리
+- [x] ~~STT 결과 `.txt`를 입력으로 요약 step 연결~~
+- [x] ~~단독 요약 실행 API 필요 여부 결정~~
+  - 결정: 우선 다운로드 task pipeline에 통합하고 단독 API는 보류
+- [x] ~~요약 진행 상태 표시~~
+  - 다운로드 task 상태 메시지로 `AI 요약 중` 표시
+- [x] ~~요약 결과 파일 저장 경로 정책 정리~~
+  - STT txt와 같은 위치에 `_summarized.txt` 생성
 - [ ] Gemini/OpenAI 오류 메시지 정규화
-- [ ] API key 미설정 시 사용자 친화적 오류 반환
+- [x] ~~API key/모델 미설정 시 AI 요약 설정 비활성화~~
 
 ### 7.2 OpenAI 설정 정리
 
@@ -348,24 +386,26 @@
 
 ### 7.3 추가 요약 지시사항 UI
 
-- [ ] 웹 설정 폼에 `SUMMARY_PROMPT_EXTRA` textarea 추가
-- [ ] 기존 값 표시/수정/비우기 정책 결정
-- [ ] 백엔드 `GET /api/settings`와 `PUT /api/settings` 연결 확인
+- [x] ~~웹 설정 폼에 요약 프롬프트 textarea 추가~~
+- [x] ~~기존 값 표시/수정/초기화 정책 결정~~
+- [x] ~~백엔드 `GET /api/settings`와 `PUT /api/settings` 연결 확인~~
 
 ### 7.4 프론트 요약 UI
 
-- [ ] 강의별 요약 실행 버튼 추가
-- [ ] 요약 중/완료/실패 상태 표시
-- [ ] 요약 결과 보기 버튼 추가
+- [ ] 강의별 단독 요약 실행 버튼 추가
+- [x] ~~요약 중/완료/실패 상태 표시~~
+- [x] ~~요약 결과 보기 버튼 추가~~
+  - 기존 생성 요약 파일에 대한 강의 상세 연결
 - [ ] 요약 결과가 없을 때 생성 유도 표시
 
 ### 7.5 검증
 
-- [ ] Gemini 요약 성공 확인
-- [ ] API key 없음 케이스 확인
+- [x] ~~Gemini 요약 성공 확인~~
+  - 검증: 다운로드 파이프라인/웹 다운로드 route 테스트
+- [x] ~~API key 없음 케이스 확인~~
 - [ ] 잘못된 API key 케이스 확인
 - [ ] OpenAI를 지원하는 경우 OpenAI 요약 성공 확인
-- [ ] 추가 프롬프트 반영 확인
+- [x] ~~추가 프롬프트 및 사용자 편집 프롬프트 반영 확인~~
 - [ ] `uv run pytest` 통과
 - [ ] `uv run ruff check .` 통과
 
@@ -675,7 +715,7 @@ README는 마크다운 대시보드를 설명하지만 현재 summarizer는 `_su
 - [x] ~~`uv run ruff check .` 통과~~
   - 2026-04-14: `All checks passed!`
 - [x] ~~`uv run ruff format --check .` 통과~~
-  - 2026-04-14: `64 files already formatted`
+  - 2026-04-14: `65 files already formatted`
 
 ### 16.2 테스트 보강
 

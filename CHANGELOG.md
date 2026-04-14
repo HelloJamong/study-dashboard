@@ -1,5 +1,57 @@
 # Changelog
 
+## [v26.04.09] - 2026-04-14
+
+### STT 다운로드 파이프라인, AI 요약 파이프라인, 프롬프트 편집 UI, 설정 화면 개선
+
+#### 추가
+- **다운로드 → STT 변환 파이프라인 연결** (`src/downloader/pipeline.py`, `backend/api/routes/tasks.py`, `src/config.py`)
+  - `download_lecture_media()`에 STT 파라미터 추가: `stt_enabled`, `stt_model`, `stt_language`, `delete_audio_after_stt`
+  - 다운로드 완료 후 Whisper STT 변환 step 자동 실행 (mp3 / both 규칙에서만 활성)
+  - STT 변환 성공 시 `.txt` 파일을 task result에 포함
+  - `delete_audio_after_stt` 옵션 활성화 시 변환 완료 후 mp3 파일 자동 삭제
+  - 웹 다운로드 task에서 `Config.STT_ENABLED`, `Config.WHISPER_MODEL`, `Config.STT_LANGUAGE`, `Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE` 반영
+  - STT 성공/실패 행위 로그 (`event_type="stt"`) 기록
+- **다운로드 → STT → AI 요약 파이프라인 연결** (`src/downloader/pipeline.py`, `backend/api/routes/tasks.py`, `src/summarizer/summarizer.py`)
+  - `download_lecture_media()`에 요약 파라미터 추가: `ai_enabled`, `ai_agent`, `ai_api_key`, `ai_model`, `summary_prompt_template`, `summary_prompt_extra`, `delete_text_after_summary`
+  - STT 변환 성공 후 Gemini 요약 step 자동 실행
+  - 요약 성공 시 `_summarized.txt` 파일을 task result에 포함
+  - `delete_text_after_summary` 옵션 활성화 시 요약 완료 후 STT 원본 txt 파일 자동 삭제
+  - 웹 다운로드 task에서 `Config.AI_ENABLED`, `Config.AI_AGENT`, `Config.GOOGLE_API_KEY`, `Config.GEMINI_MODEL`, `Config.get_summary_prompt_template()`, `Config.SUMMARY_PROMPT_EXTRA`, `Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE` 반영
+  - AI 요약 성공/실패 행위 로그 (`event_type="summary"`) 기록
+- **AI 요약 프롬프트 편집 UI** (`frontend/index.html`, `frontend/js/app.js`, `frontend/js/state.js`, `backend/api/routes/settings.py`, `src/config.py`)
+  - 웹 설정 화면 AI 요약 섹션에 프롬프트 textarea 추가
+  - 편집 버튼으로 readOnly 토글, 편집 완료 후 저장 가능
+  - 초기화 버튼으로 `DEFAULT_SUMMARY_PROMPT`로 즉시 복원
+  - `SUMMARY_PROMPT_TEMPLATE` 설정으로 저장, `{text}` placeholder에 STT 원문 삽입 지원
+  - `GET /api/settings`에 `SUMMARY_PROMPT_TEMPLATE`, `SUMMARY_PROMPT_DEFAULT` 추가
+  - `PUT /api/settings`에서 `SUMMARY_PROMPT_TEMPLATE`, `SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE` 처리
+- **비전채플 과목 전용 요약 프롬프트 추가** (`src/summarizer/summarizer.py`)
+  - 과목명에 "비전채플" 포함 시 `[강연자 소개]`, `[성경 말씀]` 섹션 자동 추가
+- **웹 설정 STT 삭제 토글 추가** (`frontend/index.html`, `frontend/js/app.js`)
+  - `STT 변환 후 mp3 삭제` 토글: STT 활성 시에만 활성화
+  - `AI 요약 후 원본 txt 삭제` 토글: AI 요약 활성 시에만 활성화
+  - 다운로드 규칙이 `mp4`이면 STT 섹션 숨김, STT 비활성이면 AI 요약 섹션 숨김
+- **로그 조회 메뉴에 AI 요약 필터 추가** (`frontend/index.html`, `frontend/js/app.js`)
+  - 사이드바 로그 드롭다운에 `AI 요약` 유형 필터 추가
+- **설정 화면 테스트** (`tests/test_web_settings.py`, `tests/test_web_download.py`, `tests/test_config.py`, `tests/test_summarizer.py`, `tests/test_download_pipeline.py`)
+  - 다운로드 규칙/STT/AI 설정 저장 및 자동 비활성화 로직 테스트 추가
+  - `DOWNLOAD_DIR` DB 무시 정책 테스트 추가
+  - 요약 프롬프트 빌드 로직 및 chapel 추가 섹션 테스트 추가
+  - 웹 다운로드 task STT/AI 파라미터 전달 테스트 추가
+
+#### 변경
+- **Gemini 모델 설정을 텍스트 입력에서 드롭다운 선택으로 변경** (`frontend/index.html`, `frontend/js/app.js`)
+  - `gemini-2.5-flash` (무료 티어 지원, 권장), `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro` 선택 지원
+  - DB에 모델 미설정 시 `gemini-2.5-flash` 자동 기본 선택
+- **AI 에이전트 선택 UI 제거** (`frontend/index.html`)
+  - Gemini 단일 엔진으로 통합됨에 따라 에이전트 선택 드롭다운 제거
+- **요약 프롬프트 textarea 자동 높이 조정** (`frontend/index.html`, `frontend/js/app.js`)
+  - `rows="12"` 고정 → `autoResizeTextarea()` 기반 내용에 맞는 자동 확장으로 변경
+  - 설정 로드·초기화·편집 중 타이핑 시 실시간 높이 반영
+
+---
+
 ## [v26.04.08] - 2026-04-14
 
 ### 대시보드 재구성, 다운로드 경로 고정, DB 행위 로그 및 로그 조회 UI

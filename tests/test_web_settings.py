@@ -6,6 +6,7 @@ from backend.api.state import app_state
 
 from src.config import Config
 from src.event_log import list_events
+from src.summarizer.summarizer import DEFAULT_SUMMARY_PROMPT
 
 
 class _FakeScraper:
@@ -22,7 +23,15 @@ def _make_db(tmp_path, monkeypatch):
 def reset_state():
     app_state.scraper = _FakeScraper()
     Config.DOWNLOAD_ENABLED = "true"
+    Config.DOWNLOAD_RULE = "mp4"
     Config.AUTO_DOWNLOAD_AFTER_PLAY = "true"
+    Config.STT_ENABLED = "false"
+    Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = "false"
+    Config.AI_ENABLED = "false"
+    Config.GOOGLE_API_KEY = ""
+    Config.GEMINI_MODEL = ""
+    Config.SUMMARY_PROMPT_TEMPLATE = DEFAULT_SUMMARY_PROMPT
+    Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = "false"
     yield
     app_state.scraper = None
 
@@ -50,7 +59,7 @@ async def test_update_settings_disables_dependent_options_when_download_off(monk
 
 
 @pytest.mark.asyncio
-async def test_update_settings_disables_stt_ai_when_auto_download_off(monkeypatch):
+async def test_update_settings_allows_stt_when_auto_download_off(monkeypatch):
     saved = {}
 
     monkeypatch.setattr(settings_route.db, "set_many", lambda values: saved.update(values))
@@ -59,6 +68,7 @@ async def test_update_settings_disables_stt_ai_when_auto_download_off(monkeypatc
     await settings_route.update_settings(
         settings_route.SettingsUpdate(
             DOWNLOAD_ENABLED="true",
+            DOWNLOAD_RULE="mp3",
             AUTO_DOWNLOAD_AFTER_PLAY="false",
             STT_ENABLED="true",
             AI_ENABLED="true",
@@ -67,7 +77,30 @@ async def test_update_settings_disables_stt_ai_when_auto_download_off(monkeypatc
 
     assert saved["DOWNLOAD_ENABLED"] == "true"
     assert saved["AUTO_DOWNLOAD_AFTER_PLAY"] == "false"
+    assert saved["STT_ENABLED"] == "true"
+    assert saved["AI_ENABLED"] == "false"
+
+
+@pytest.mark.asyncio
+async def test_update_settings_disables_stt_when_download_rule_is_mp4(monkeypatch):
+    saved = {}
+
+    monkeypatch.setattr(settings_route.db, "set_many", lambda values: saved.update(values))
+    monkeypatch.setattr(Config, "load", lambda: None)
+
+    await settings_route.update_settings(
+        settings_route.SettingsUpdate(
+            DOWNLOAD_ENABLED="true",
+            DOWNLOAD_RULE="mp4",
+            STT_ENABLED="true",
+            STT_DELETE_AUDIO_AFTER_TRANSCRIBE="true",
+            AI_ENABLED="true",
+        )
+    )
+
+    assert saved["DOWNLOAD_RULE"] == "mp4"
     assert saved["STT_ENABLED"] == "false"
+    assert saved["STT_DELETE_AUDIO_AFTER_TRANSCRIBE"] == "false"
     assert saved["AI_ENABLED"] == "false"
 
 
@@ -112,3 +145,59 @@ async def test_update_settings_writes_masked_event_log(monkeypatch, tmp_path):
     assert events[0]["actor_user_id"] == "student"
     assert events[0]["metadata"]["after"]["GOOGLE_API_KEY"] == "[redacted]"
     assert "real-secret-key" not in str(events[0]["metadata"])
+
+
+@pytest.mark.asyncio
+async def test_update_settings_disables_ai_without_gemini_key_and_model(monkeypatch):
+    saved = {}
+    Config.STT_ENABLED = "true"
+
+    monkeypatch.setattr(settings_route.db, "set_many", lambda values: saved.update(values))
+    monkeypatch.setattr(Config, "load", lambda: None)
+
+    await settings_route.update_settings(
+        settings_route.SettingsUpdate(
+            DOWNLOAD_ENABLED="true",
+            DOWNLOAD_RULE="mp3",
+            STT_ENABLED="true",
+            AI_ENABLED="true",
+            SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE="true",
+        )
+    )
+
+    assert saved["AI_ENABLED"] == "false"
+    assert saved["SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE"] == "false"
+
+
+@pytest.mark.asyncio
+async def test_update_settings_allows_ai_with_gemini_key_and_model(monkeypatch):
+    saved = {}
+
+    monkeypatch.setattr(settings_route.db, "set_many", lambda values: saved.update(values))
+    monkeypatch.setattr(Config, "load", lambda: None)
+
+    await settings_route.update_settings(
+        settings_route.SettingsUpdate(
+            DOWNLOAD_ENABLED="true",
+            DOWNLOAD_RULE="mp3",
+            STT_ENABLED="true",
+            AI_ENABLED="true",
+            GOOGLE_API_KEY="real-secret-key",
+            GEMINI_MODEL="gemini-2.5-flash",
+            SUMMARY_PROMPT_TEMPLATE="커스텀 {text}",
+            SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE="true",
+        )
+    )
+
+    assert saved["AI_ENABLED"] == "true"
+    assert saved["GEMINI_MODEL"] == "gemini-2.5-flash"
+    assert saved["SUMMARY_PROMPT_TEMPLATE"] == "커스텀 {text}"
+    assert saved["SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE"] == "true"
+
+
+@pytest.mark.asyncio
+async def test_get_settings_returns_summary_prompt_default():
+    payload = await settings_route.get_settings()
+
+    assert payload["SUMMARY_PROMPT_DEFAULT"] == DEFAULT_SUMMARY_PROMPT
+    assert payload["SUMMARY_PROMPT_TEMPLATE"] == DEFAULT_SUMMARY_PROMPT

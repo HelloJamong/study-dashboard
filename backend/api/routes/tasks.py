@@ -56,8 +56,51 @@ async def start_download(req: DownloadTaskRequest):
                 course_name=course.long_name,
                 download_dir=Config.get_download_dir(),
                 rule=Config.get_download_rule(),
+                stt_enabled=Config.STT_ENABLED == "true",
+                stt_model=Config.WHISPER_MODEL or "base",
+                stt_language=Config.STT_LANGUAGE or "",
+                delete_audio_after_stt=Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE == "true",
+                ai_enabled=Config.AI_ENABLED == "true",
+                ai_agent=Config.AI_AGENT or "gemini",
+                ai_api_key=Config.GOOGLE_API_KEY,
+                ai_model=Config.GEMINI_MODEL,
+                summary_prompt_template=Config.get_summary_prompt_template(),
+                summary_prompt_extra=Config.SUMMARY_PROMPT_EXTRA,
+                delete_text_after_summary=Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE == "true",
                 on_stage=on_stage,
             )
+            stt_result = result.get("stt") or {}
+            if stt_result.get("status") == "completed":
+                event_log.record_event(
+                    event_type="stt",
+                    action="transcribe_complete",
+                    status="success",
+                    actor_user_id=app_state.user_id or None,
+                    target_type="lecture",
+                    course_id=req.course_id,
+                    course_name=course.long_name,
+                    lecture_title=req.lecture_title,
+                    lecture_url=req.lecture_url,
+                    week_label=req.week_label,
+                    message="STT 변환이 완료되었습니다.",
+                    metadata={"task_id": managed.id, "stt": stt_result},
+                )
+            summary_result = result.get("summary") or {}
+            if summary_result.get("status") == "completed":
+                event_log.record_event(
+                    event_type="summary",
+                    action="summary_complete",
+                    status="success",
+                    actor_user_id=app_state.user_id or None,
+                    target_type="lecture",
+                    course_id=req.course_id,
+                    course_name=course.long_name,
+                    lecture_title=req.lecture_title,
+                    lecture_url=req.lecture_url,
+                    week_label=req.week_label,
+                    message="AI 요약이 완료되었습니다.",
+                    metadata={"task_id": managed.id, "summary": summary_result},
+                )
             event_log.record_event(
                 event_type="download",
                 action="download_complete",
@@ -92,6 +135,38 @@ async def start_download(req: DownloadTaskRequest):
             )
             return {}
         except Exception as e:
+            if managed.stage == "transcribing":
+                event_log.record_event(
+                    event_type="stt",
+                    action="transcribe_failed",
+                    status="failed",
+                    actor_user_id=app_state.user_id or None,
+                    target_type="lecture",
+                    course_id=req.course_id,
+                    course_name=course.long_name,
+                    lecture_title=req.lecture_title,
+                    lecture_url=req.lecture_url,
+                    week_label=req.week_label,
+                    error_code=type(e).__name__,
+                    error_message=str(e),
+                    metadata={"task_id": managed.id},
+                )
+            if managed.stage == "summarizing":
+                event_log.record_event(
+                    event_type="summary",
+                    action="summary_failed",
+                    status="failed",
+                    actor_user_id=app_state.user_id or None,
+                    target_type="lecture",
+                    course_id=req.course_id,
+                    course_name=course.long_name,
+                    lecture_title=req.lecture_title,
+                    lecture_url=req.lecture_url,
+                    week_label=req.week_label,
+                    error_code=type(e).__name__,
+                    error_message=str(e),
+                    metadata={"task_id": managed.id},
+                )
             event_log.record_event(
                 event_type="download",
                 action="download_failed",
@@ -118,6 +193,10 @@ async def start_download(req: DownloadTaskRequest):
             "lecture_title": req.lecture_title,
             "week_label": req.week_label,
             "download_rule": Config.get_download_rule(),
+            "stt_enabled": Config.STT_ENABLED,
+            "stt_delete_audio_after_transcribe": Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE,
+            "ai_enabled": Config.AI_ENABLED,
+            "summary_delete_text_after_summarize": Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE,
         },
     )
     event_log.record_event(
@@ -132,7 +211,11 @@ async def start_download(req: DownloadTaskRequest):
         lecture_url=req.lecture_url,
         week_label=req.week_label,
         message="다운로드를 시작했습니다.",
-        metadata={"task_id": managed.id, "download_rule": Config.get_download_rule()},
+        metadata={
+            "task_id": managed.id,
+            "download_rule": Config.get_download_rule(),
+            "stt_enabled": Config.STT_ENABLED,
+        },
     )
     return {"started": True, "task_id": managed.id}
 

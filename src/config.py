@@ -61,6 +61,12 @@ def get_data_path(filename: str) -> Path:
     return base / filename
 
 
+def _default_summary_prompt() -> str:
+    from src.summarizer.summarizer import DEFAULT_SUMMARY_PROMPT
+
+    return DEFAULT_SUMMARY_PROMPT
+
+
 class Config:
     # 클래스 정의 시점에는 기본값으로 초기화.
     # 앱 시작 시 Config.load()를 호출해 DB에서 실제 값을 로드한다.
@@ -69,6 +75,7 @@ class Config:
     GOOGLE_API_KEY: str = ""
     WHISPER_MODEL: str = "base"
     STT_LANGUAGE: str = "ko"
+    STT_DELETE_AUDIO_AFTER_TRANSCRIBE: str = ""
     DOWNLOAD_ENABLED: str = ""
     DOWNLOAD_DIR: str = ""
     DOWNLOAD_RULE: str = "mp4"
@@ -77,7 +84,9 @@ class Config:
     AI_ENABLED: str = ""
     AI_AGENT: str = ""
     GEMINI_MODEL: str = ""
+    SUMMARY_PROMPT_TEMPLATE: str = ""
     SUMMARY_PROMPT_EXTRA: str = ""
+    SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE: str = ""
     TELEGRAM_ENABLED: str = ""
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
@@ -96,15 +105,26 @@ class Config:
         cls.TELEGRAM_BOT_TOKEN = _load_credential("TELEGRAM_BOT_TOKEN")
         cls.WHISPER_MODEL = db.get("WHISPER_MODEL", "base")
         cls.STT_LANGUAGE = db.get("STT_LANGUAGE", "ko")
+        cls.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = db.get("STT_DELETE_AUDIO_AFTER_TRANSCRIBE", "false")
         cls.DOWNLOAD_ENABLED = db.get("DOWNLOAD_ENABLED", "false")
         cls.DOWNLOAD_DIR = _default_download_dir()
         cls.DOWNLOAD_RULE = normalize_download_rule(db.get("DOWNLOAD_RULE", "mp4"))
         cls.AUTO_DOWNLOAD_AFTER_PLAY = db.get("AUTO_DOWNLOAD_AFTER_PLAY", "false")
         cls.STT_ENABLED = db.get("STT_ENABLED", "")
+        if cls.DOWNLOAD_ENABLED != "true" or cls.DOWNLOAD_RULE not in {"mp3", "both"}:
+            cls.STT_ENABLED = "false"
         cls.AI_ENABLED = db.get("AI_ENABLED", "")
+        if cls.STT_ENABLED != "true":
+            cls.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = "false"
+            cls.AI_ENABLED = "false"
         cls.AI_AGENT = db.get("AI_AGENT", "")
         cls.GEMINI_MODEL = db.get("GEMINI_MODEL", "")
+        cls.SUMMARY_PROMPT_TEMPLATE = db.get("SUMMARY_PROMPT_TEMPLATE", _default_summary_prompt())
         cls.SUMMARY_PROMPT_EXTRA = db.get("SUMMARY_PROMPT_EXTRA", "")
+        cls.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = db.get("SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE", "false")
+        if cls.AI_ENABLED == "true" and (not cls.GOOGLE_API_KEY or not cls.GEMINI_MODEL):
+            cls.AI_ENABLED = "false"
+            cls.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = "false"
         cls.TELEGRAM_ENABLED = db.get("TELEGRAM_ENABLED", "")
         cls.TELEGRAM_CHAT_ID = db.get("TELEGRAM_CHAT_ID", "")
         cls.TELEGRAM_AUTO_DELETE = db.get("TELEGRAM_AUTO_DELETE", "")
@@ -134,6 +154,11 @@ class Config:
         return normalize_download_rule(cls.DOWNLOAD_RULE)
 
     @classmethod
+    def get_summary_prompt_template(cls) -> str:
+        """현재 요약 프롬프트 템플릿을 반환한다."""
+        return cls.SUMMARY_PROMPT_TEMPLATE or _default_summary_prompt()
+
+    @classmethod
     def is_download_enabled(cls) -> bool:
         return cls.DOWNLOAD_ENABLED == "true"
 
@@ -151,26 +176,35 @@ class Config:
         ai_agent: str,
         api_key: str,
         gemini_model: str = "",
+        summary_prompt_template: str = "",
         summary_prompt_extra: str = "",
         download_enabled: bool = True,
         auto_download_after_play: bool = True,
+        stt_delete_audio_after_transcribe: bool = False,
+        summary_delete_text_after_summarize: bool = False,
     ) -> None:
         """설정 항목을 DB에 저장한다."""
         auto_download_after_play = auto_download_after_play and download_enabled
-        stt_enabled = stt_enabled and auto_download_after_play
-        ai_enabled = ai_enabled and auto_download_after_play
-        if not auto_download_after_play:
+        normalized_rule = normalize_download_rule(download_rule)
+        stt_enabled = stt_enabled and download_enabled and normalized_rule in {"mp3", "both"}
+        ai_enabled = ai_enabled and stt_enabled and bool(api_key) and bool(gemini_model)
+        if not stt_enabled:
             ai_enabled = False
 
         cls.DOWNLOAD_ENABLED = "true" if download_enabled else "false"
         fixed_download_dir = cls.get_download_dir()
         cls.DOWNLOAD_DIR = fixed_download_dir
-        cls.DOWNLOAD_RULE = normalize_download_rule(download_rule)
+        cls.DOWNLOAD_RULE = normalized_rule
         cls.AUTO_DOWNLOAD_AFTER_PLAY = "true" if auto_download_after_play else "false"
         cls.STT_ENABLED = "true" if stt_enabled else "false"
+        cls.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = "true" if stt_enabled and stt_delete_audio_after_transcribe else "false"
         cls.AI_ENABLED = "true" if ai_enabled else "false"
         cls.AI_AGENT = ai_agent
+        cls.SUMMARY_PROMPT_TEMPLATE = summary_prompt_template or _default_summary_prompt()
         cls.SUMMARY_PROMPT_EXTRA = summary_prompt_extra
+        cls.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = (
+            "true" if ai_enabled and summary_delete_text_after_summarize else "false"
+        )
         if gemini_model:
             cls.GEMINI_MODEL = gemini_model
 
@@ -180,9 +214,12 @@ class Config:
             "DOWNLOAD_ENABLED": cls.DOWNLOAD_ENABLED,
             "AUTO_DOWNLOAD_AFTER_PLAY": cls.AUTO_DOWNLOAD_AFTER_PLAY,
             "STT_ENABLED": cls.STT_ENABLED,
+            "STT_DELETE_AUDIO_AFTER_TRANSCRIBE": cls.STT_DELETE_AUDIO_AFTER_TRANSCRIBE,
             "AI_ENABLED": cls.AI_ENABLED,
             "AI_AGENT": ai_agent,
+            "SUMMARY_PROMPT_TEMPLATE": cls.SUMMARY_PROMPT_TEMPLATE,
             "SUMMARY_PROMPT_EXTRA": summary_prompt_extra,
+            "SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE": cls.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE,
         }
         if gemini_model:
             to_save["GEMINI_MODEL"] = gemini_model

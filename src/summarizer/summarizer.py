@@ -7,7 +7,7 @@ STT로 생성된 .txt 파일을 Gemini API로 요약한다.
 
 from pathlib import Path
 
-_SUMMARY_PROMPT = """\
+DEFAULT_SUMMARY_PROMPT = """\
 당신은 대학교 강의 내용을 정리하는 전문 학습 보조 AI입니다.
 아래는 강의를 음성 인식(STT)으로 변환한 텍스트입니다. STT 특성상 오탈자나 문장이 부자연스러운 부분이 있을 수 있으니 문맥을 고려해 이해해 주세요.
 
@@ -76,7 +76,13 @@ GEMINI_DEFAULT_MODEL = GEMINI_MODEL_IDS[0]
 
 
 def summarize(
-    txt_path: Path, agent: str, api_key: str, model: str, extra_prompt: str = "", course_name: str = ""
+    txt_path: Path,
+    agent: str,
+    api_key: str,
+    model: str,
+    extra_prompt: str = "",
+    course_name: str = "",
+    prompt_template: str = "",
 ) -> Path:
     """
     텍스트 파일을 AI로 요약한다.
@@ -88,6 +94,7 @@ def summarize(
         model:        사용할 모델 ID
         extra_prompt: 사용자 추가 지시사항 (기본 프롬프트 뒤에 추가)
         course_name:  과목명 (비전채플 감지에 사용)
+        prompt_template: 사용자 편집 요약 프롬프트. `{text}` placeholder 사용 가능
 
     Returns:
         생성된 _summarized.txt 파일 경로
@@ -96,11 +103,12 @@ def summarize(
     if not text:
         raise ValueError("텍스트 파일이 비어 있습니다.")
 
-    prompt = _SUMMARY_PROMPT.format(text=text)
-    if "비전채플" in course_name:
-        prompt += _EXTRA_PROMPT_TEMPLATE.format(extra=_CHAPEL_EXTRA_PROMPT)
-    if extra_prompt:
-        prompt += _EXTRA_PROMPT_TEMPLATE.format(extra=extra_prompt)
+    prompt = build_summary_prompt(
+        text,
+        extra_prompt=extra_prompt,
+        course_name=course_name,
+        prompt_template=prompt_template,
+    )
 
     if agent == "gemini":
         summary = _summarize_gemini(api_key, model, prompt)
@@ -110,6 +118,26 @@ def summarize(
     out_path = txt_path.with_stem(txt_path.stem + "_summarized")
     out_path.write_text(summary, encoding="utf-8")
     return out_path
+
+
+def build_summary_prompt(
+    text: str,
+    *,
+    extra_prompt: str = "",
+    course_name: str = "",
+    prompt_template: str = "",
+) -> str:
+    """요약 요청 프롬프트를 구성한다."""
+    template = prompt_template or DEFAULT_SUMMARY_PROMPT
+    if "{text}" in template:
+        prompt = template.format(text=text)
+    else:
+        prompt = f"{template.rstrip()}\n\n강의 텍스트:\n{text}"
+    if "비전채플" in course_name:
+        prompt += _EXTRA_PROMPT_TEMPLATE.format(extra=_CHAPEL_EXTRA_PROMPT)
+    if extra_prompt:
+        prompt += _EXTRA_PROMPT_TEMPLATE.format(extra=extra_prompt)
+    return prompt
 
 
 def _summarize_gemini(api_key: str, model: str, prompt: str) -> str:

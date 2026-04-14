@@ -187,6 +187,9 @@ async def run_download(page, lec, course, audio_only: bool = False, both: bool =
             )
             console.print("  [bold green]STT 완료![/bold green]")
             console.print(f"  [dim]{txt_path}[/dim]")
+            if Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE == "true":
+                mp3_path.unlink(missing_ok=True)
+                console.print("  [dim]STT 변환 후 mp3 파일을 삭제했습니다.[/dim]")
         except Exception as e:
             console.print(f"  [bold red]STT 실패:[/bold red] {e}")
 
@@ -235,12 +238,16 @@ async def run_download(page, lec, course, audio_only: bool = False, both: bool =
                                         agent=Config.AI_AGENT or "gemini",
                                         api_key=api_key,
                                         model=model or GEMINI_DEFAULT_MODEL,
+                                        prompt_template=Config.get_summary_prompt_template(),
                                         extra_prompt=Config.SUMMARY_PROMPT_EXTRA,
                                         course_name=course.long_name,
                                     ),
                                 )
                     console.print("  [bold green]AI 요약 완료![/bold green]")
                     console.print(f"  [dim]{summary_path}[/dim]")
+                    if Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE == "true" and txt_path:
+                        txt_path.unlink(missing_ok=True)
+                        console.print("  [dim]AI 요약 후 원본 txt 파일을 삭제했습니다.[/dim]")
                     last_error = None
                     break
                 except Exception as e:

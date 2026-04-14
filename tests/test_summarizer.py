@@ -27,6 +27,31 @@ def test_summarize_output_path(tmp_path):
         assert result.read_text(encoding="utf-8") == "요약 결과"
 
 
+def test_summarize_uses_custom_prompt_template(tmp_path):
+    """사용자 편집 프롬프트 템플릿을 Gemini 호출에 반영한다."""
+    txt = tmp_path / "lecture.txt"
+    txt.write_text("강의 내용입니다.", encoding="utf-8")
+    captured = {}
+
+    def fake_summarize(api_key, model, prompt):
+        captured["prompt"] = prompt
+        return "요약 결과"
+
+    with patch("src.summarizer.summarizer._summarize_gemini", side_effect=fake_summarize):
+        from src.summarizer.summarizer import summarize
+
+        summarize(
+            txt,
+            agent="gemini",
+            api_key="key",
+            model="model",
+            prompt_template="커스텀 프롬프트\n{text}",
+        )
+
+    assert "커스텀 프롬프트" in captured["prompt"]
+    assert "강의 내용입니다." in captured["prompt"]
+
+
 def test_summarize_unsupported_agent(tmp_path):
     """지원하지 않는 에이전트는 ValueError."""
     txt = tmp_path / "test.txt"

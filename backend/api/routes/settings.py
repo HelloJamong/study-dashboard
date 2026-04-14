@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from src import db, event_log
 from src.config import Config, normalize_download_rule
 from src.crypto import encrypt
+from src.summarizer.summarizer import DEFAULT_SUMMARY_PROMPT
 
 router = APIRouter()
 
@@ -26,11 +27,15 @@ async def get_settings():
         "AUTO_DOWNLOAD_AFTER_PLAY": Config.AUTO_DOWNLOAD_AFTER_PLAY,
         "STT_ENABLED": Config.STT_ENABLED,
         "STT_LANGUAGE": Config.STT_LANGUAGE,
+        "STT_DELETE_AUDIO_AFTER_TRANSCRIBE": Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE,
         "WHISPER_MODEL": Config.WHISPER_MODEL,
         "AI_ENABLED": Config.AI_ENABLED,
         "AI_AGENT": Config.AI_AGENT,
         "GEMINI_MODEL": Config.GEMINI_MODEL,
+        "SUMMARY_PROMPT_TEMPLATE": Config.get_summary_prompt_template(),
+        "SUMMARY_PROMPT_DEFAULT": DEFAULT_SUMMARY_PROMPT,
         "SUMMARY_PROMPT_EXTRA": Config.SUMMARY_PROMPT_EXTRA,
+        "SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE": Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE,
         "TELEGRAM_ENABLED": Config.TELEGRAM_ENABLED,
         "TELEGRAM_CHAT_ID": Config.TELEGRAM_CHAT_ID,
         "TELEGRAM_AUTO_DELETE": Config.TELEGRAM_AUTO_DELETE,
@@ -43,12 +48,15 @@ class SettingsUpdate(BaseModel):
     AUTO_DOWNLOAD_AFTER_PLAY: str | None = None
     STT_ENABLED: str | None = None
     STT_LANGUAGE: str | None = None
+    STT_DELETE_AUDIO_AFTER_TRANSCRIBE: str | None = None
     WHISPER_MODEL: str | None = None
     AI_ENABLED: str | None = None
     AI_AGENT: str | None = None
     GEMINI_MODEL: str | None = None
     GOOGLE_API_KEY: str | None = None
+    SUMMARY_PROMPT_TEMPLATE: str | None = None
     SUMMARY_PROMPT_EXTRA: str | None = None
+    SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE: str | None = None
     TELEGRAM_ENABLED: str | None = None
     TELEGRAM_BOT_TOKEN: str | None = None
     TELEGRAM_CHAT_ID: str | None = None
@@ -65,14 +73,30 @@ async def update_settings(body: SettingsUpdate):
         to_save[key] = encrypt(val) if key in _SENSITIVE and val else val
 
     download_enabled = to_save.get("DOWNLOAD_ENABLED", Config.DOWNLOAD_ENABLED) == "true"
-    auto_download_after_play = to_save.get("AUTO_DOWNLOAD_AFTER_PLAY", Config.AUTO_DOWNLOAD_AFTER_PLAY) == "true"
+    download_rule = normalize_download_rule(to_save.get("DOWNLOAD_RULE", Config.get_download_rule()))
+    stt_supported = download_enabled and download_rule in {"mp3", "both"}
+    stt_enabled = to_save.get("STT_ENABLED", Config.STT_ENABLED) == "true"
+    ai_enabled = to_save.get("AI_ENABLED", Config.AI_ENABLED) == "true"
+    has_gemini_key = bool(to_save.get("GOOGLE_API_KEY") or Config.GOOGLE_API_KEY)
+    has_gemini_model = bool(to_save.get("GEMINI_MODEL") or Config.GEMINI_MODEL)
     if not download_enabled:
         to_save["AUTO_DOWNLOAD_AFTER_PLAY"] = "false"
         to_save["STT_ENABLED"] = "false"
+        to_save["STT_DELETE_AUDIO_AFTER_TRANSCRIBE"] = "false"
         to_save["AI_ENABLED"] = "false"
-    elif not auto_download_after_play:
+        to_save["SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE"] = "false"
+    elif not stt_supported:
         to_save["STT_ENABLED"] = "false"
+        to_save["STT_DELETE_AUDIO_AFTER_TRANSCRIBE"] = "false"
         to_save["AI_ENABLED"] = "false"
+        to_save["SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE"] = "false"
+    elif not stt_enabled:
+        to_save["STT_DELETE_AUDIO_AFTER_TRANSCRIBE"] = "false"
+        to_save["AI_ENABLED"] = "false"
+        to_save["SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE"] = "false"
+    elif not ai_enabled or not (has_gemini_key and has_gemini_model):
+        to_save["AI_ENABLED"] = "false"
+        to_save["SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE"] = "false"
 
     if to_save:
         keys = sorted(to_save)

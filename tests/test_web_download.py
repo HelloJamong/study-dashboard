@@ -52,6 +52,16 @@ def reset_state(monkeypatch, tmp_path):
     Config.DOWNLOAD_DIR = str(tmp_path)
     Config.DOWNLOAD_ENABLED = "true"
     Config.DOWNLOAD_RULE = "mp4"
+    Config.STT_ENABLED = "false"
+    Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = "false"
+    Config.WHISPER_MODEL = "base"
+    Config.STT_LANGUAGE = "ko"
+    Config.AI_ENABLED = "false"
+    Config.AI_AGENT = "gemini"
+    Config.GOOGLE_API_KEY = ""
+    Config.GEMINI_MODEL = ""
+    Config.SUMMARY_PROMPT_EXTRA = ""
+    Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = "false"
     yield
     _reset_app_state()
 
@@ -93,6 +103,110 @@ async def test_start_download_creates_managed_task(monkeypatch, tmp_path):
     assert [event["action"] for event in events] == ["download_complete", "download_start"]
     assert events[0]["status"] == "success"
     assert event_log.is_timestamp_format(events[0]["created_at"])
+
+
+@pytest.mark.asyncio
+async def test_start_download_passes_stt_options_and_logs_completion(monkeypatch, tmp_path):
+    course = _seed_course()
+    Config.DOWNLOAD_RULE = "mp3"
+    Config.STT_ENABLED = "true"
+    Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = "true"
+    Config.WHISPER_MODEL = "tiny"
+    Config.STT_LANGUAGE = ""
+    called = {}
+
+    async def fake_download_lecture_media(**kwargs):
+        called.update(kwargs)
+        kwargs["on_stage"]("transcribing", "STT 변환 중입니다.", 95)
+        return {
+            "download_rule": kwargs["rule"],
+            "download_dir": kwargs["download_dir"],
+            "files": [{"type": "txt", "path": str(tmp_path / "lecture.txt")}],
+            "stt": {
+                "enabled": True,
+                "status": "completed",
+                "txt_path": str(tmp_path / "lecture.txt"),
+                "audio_path": str(tmp_path / "lecture.mp3"),
+                "audio_deleted": True,
+            },
+        }
+
+    monkeypatch.setattr("src.downloader.pipeline.download_lecture_media", fake_download_lecture_media)
+
+    response = await tasks_route.start_download(
+        tasks_route.DownloadTaskRequest(
+            course_id=course.id,
+            lecture_url="https://canvas.ssu.ac.kr/courses/42/items/1",
+            lecture_title="1강",
+            week_label="1주차",
+        )
+    )
+    managed = task_manager.get(response["task_id"])
+    await managed.task
+
+    assert called["stt_enabled"] is True
+    assert called["stt_model"] == "tiny"
+    assert called["stt_language"] == ""
+    assert called["delete_audio_after_stt"] is True
+    assert managed.status == "completed"
+    stt_events = event_log.list_events(event_type="stt", limit=10)
+    assert stt_events[0]["action"] == "transcribe_complete"
+    assert stt_events[0]["metadata"]["stt"]["audio_deleted"] is True
+
+
+@pytest.mark.asyncio
+async def test_start_download_passes_ai_summary_options_and_logs_completion(monkeypatch, tmp_path):
+    course = _seed_course()
+    Config.DOWNLOAD_RULE = "both"
+    Config.STT_ENABLED = "true"
+    Config.AI_ENABLED = "true"
+    Config.AI_AGENT = "gemini"
+    Config.GOOGLE_API_KEY = "api-key"
+    Config.GEMINI_MODEL = "gemini-2.5-flash"
+    Config.SUMMARY_PROMPT_TEMPLATE = "프롬프트 {text}"
+    Config.SUMMARY_PROMPT_EXTRA = "핵심만"
+    Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = "true"
+    called = {}
+
+    async def fake_download_lecture_media(**kwargs):
+        called.update(kwargs)
+        kwargs["on_stage"]("summarizing", "AI 요약 중입니다.", 98)
+        return {
+            "download_rule": kwargs["rule"],
+            "download_dir": kwargs["download_dir"],
+            "files": [{"type": "summary", "path": str(tmp_path / "lecture_summarized.txt")}],
+            "stt": {"enabled": True, "status": "completed", "txt_path": str(tmp_path / "lecture.txt")},
+            "summary": {
+                "enabled": True,
+                "status": "completed",
+                "summary_path": str(tmp_path / "lecture_summarized.txt"),
+                "txt_path": str(tmp_path / "lecture.txt"),
+                "text_deleted": True,
+            },
+        }
+
+    monkeypatch.setattr("src.downloader.pipeline.download_lecture_media", fake_download_lecture_media)
+
+    response = await tasks_route.start_download(
+        tasks_route.DownloadTaskRequest(
+            course_id=course.id,
+            lecture_url="https://canvas.ssu.ac.kr/courses/42/items/1",
+            lecture_title="1강",
+            week_label="1주차",
+        )
+    )
+    managed = task_manager.get(response["task_id"])
+    await managed.task
+
+    assert called["ai_enabled"] is True
+    assert called["ai_api_key"] == "api-key"
+    assert called["ai_model"] == "gemini-2.5-flash"
+    assert called["summary_prompt_template"] == "프롬프트 {text}"
+    assert called["summary_prompt_extra"] == "핵심만"
+    assert called["delete_text_after_summary"] is True
+    summary_events = event_log.list_events(event_type="summary", limit=10)
+    assert summary_events[0]["action"] == "summary_complete"
+    assert summary_events[0]["metadata"]["summary"]["text_deleted"] is True
 
 
 @pytest.mark.asyncio
