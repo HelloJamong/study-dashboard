@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from backend.api.routes import auth, auto, courses, logs, player, settings, summaries, tasks
@@ -21,9 +22,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Study Helper API", version="1.0.0", lifespan=lifespan)
 
+# 기본값: 로컬 Docker 서비스 용도. 외부 노출 시 CORS_ALLOWED_ORIGINS 환경변수로 origin 목록을 콤마 구분 지정.
+_raw_origins = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost,http://localhost:80,http://localhost:443,http://127.0.0.1")
+_CORS_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

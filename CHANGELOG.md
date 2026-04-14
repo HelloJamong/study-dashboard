@@ -1,5 +1,46 @@
 # Changelog
 
+## [v26.04.10] - 2026-04-14
+
+### 요약 팝업 모달, P0 보안/안정성 개선 (통계 자동 로딩·CORS·player status)
+
+#### 추가
+- **요약 내용 팝업 모달** (`frontend/index.html`, `frontend/js/app.js`)
+  - 강의 row의 `요약 내용 보기` 버튼 클릭 시 전체 페이지 이동 대신 오버레이 팝업 표시
+  - backdrop blur, X 버튼, backdrop 클릭, ESC 키로 닫기 지원
+  - 모달 열리는 동안 body 스크롤 잠금, 닫힐 때 복원
+  - `GET /api/summaries/{summary_id}` 호출 → `renderMarkdown()`으로 안전한 마크다운 렌더링
+  - 강의명·과목·주차 메타 정보 헤더 표시, 스크롤 가능한 본문 영역
+- **통계 오류 배너** (`frontend/index.html`)
+  - `#stats-error` 영역 추가 — 통계 로딩 실패 시 에러 메시지 표시
+
+#### 변경
+- **`GET /api/courses/stats` 자동 로딩** (`backend/api/routes/courses.py`)
+  - `app_state.details`가 비어있을 때 asyncio Lock 획득 후 과목·강의 정보 자동 로딩 (double-check 패턴)
+  - 동시 요청 시 중복 로딩 방지
+  - LMS 로딩 실패 시 503 + 사용자 친화적 에러 메시지 반환
+  - 응답에 `"loaded": true` 필드 추가
+  - 프론트의 취약한 `total_videos === 0` 임시 workaround 제거 (백엔드 자동 로딩으로 대체)
+- **통계 로딩 spinner/skeleton** (`frontend/js/app.js`)
+  - `loadStats()` 호출 즉시 세 통계 카드에 spinner 표시
+  - 성공 시 숫자로 교체, 에러 배너 자동 숨김
+  - 실패 시 `—` 표시 + `#stats-error` 배너에 에러 메시지 노출
+- **CORS 정책 강화** (`backend/main.py`)
+  - `allow_origins=["*"]` 제거
+  - `CORS_ALLOWED_ORIGINS` 환경변수로 허용 origin 지정 가능 (콤마 구분)
+  - 기본값: `http://localhost`, `http://localhost:80`, `http://localhost:443`, `http://127.0.0.1`
+  - `allow_credentials=True` 추가
+- **`GET /api/player/status` 인증 정책 결정** (`backend/api/routes/player.py`)
+  - 로컬 단일 사용자 서비스 + 재생 상태 polling 용도로 인증 불필요 결정
+  - 외부 노출 환경에서는 `_require_auth()` 추가 필요함을 주석으로 명시
+- **Gemini 모델 설정 드롭다운 전환** (`frontend/index.html`, `frontend/js/app.js`)
+  - AI 에이전트 선택 UI 제거 (Gemini 단일 엔진 통합)
+  - 모델 텍스트 입력 → 드롭다운 선택으로 변경 (`gemini-2.5-flash` 기본값)
+- **요약 프롬프트 textarea 자동 높이** (`frontend/index.html`, `frontend/js/app.js`)
+  - 고정 `rows="12"` 제거 → `autoResizeTextarea()` 기반 내용에 맞는 자동 확장
+
+---
+
 ## [v26.04.09] - 2026-04-14
 
 ### STT 다운로드 파이프라인, AI 요약 파이프라인, 프롬프트 편집 UI, 설정 화면 개선

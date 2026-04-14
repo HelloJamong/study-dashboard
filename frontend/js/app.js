@@ -267,22 +267,29 @@ $('#btn-stop').addEventListener('click', async () => {
 // ═══════════════════════════════════════════════════════════════
 // 통계
 // ═══════════════════════════════════════════════════════════════
+const _STAT_IDS = ['stat-pending-videos', 'stat-pending-assignments', 'stat-pending-quizzes'];
+
+function _setStatContent(html) {
+  _STAT_IDS.forEach(id => { const el = $('#' + id); if (el) el.innerHTML = html; });
+}
+
 async function loadStats() {
+  _setStatContent('<i class="fa-solid fa-spinner fa-spin text-lg opacity-40"></i>');
   try {
     const s = await api('GET', '/api/courses/stats');
-    // 백엔드 details가 비어있으면(total=0) 아직 강의 목록이 로드되지 않은 것
-    if (s.total_videos === 0 && state.courses.length === 0) {
-      const courses = await api('GET', '/api/courses');
-      state.courses = courses;
-      const s2 = await api('GET', '/api/courses/stats');
-      renderStats(s2);
-      return;
-    }
     renderStats(s);
-  } catch {}
+  } catch (err) {
+    _setStatContent('<span class="text-slate-500 text-lg">—</span>');
+    const errEl = $('#stats-error');
+    if (errEl) {
+      errEl.textContent = err.message || '강의 정보를 불러오지 못했습니다.';
+      errEl.classList.remove('hidden');
+    }
+  }
 }
 
 function renderStats(stats) {
+  $('#stats-error')?.classList.add('hidden');
   const pendingVideos = stats.pending_videos ?? (stats.total_videos - stats.completed_videos);
   $('#stat-pending-videos').textContent = pendingVideos;
   $('#stat-pending-assignments').textContent = stats.pending_assignments ?? 0;
@@ -711,25 +718,49 @@ async function playLecture(courseId, url, title, weekLabel) {
   }
 }
 
+function _openSummaryModal() {
+  const modal = $('#summary-modal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.body.style.overflow = 'hidden';
+}
+
+function _closeSummaryModal() {
+  const modal = $('#summary-modal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  document.body.style.overflow = '';
+  state.currentSummaryId = null;
+}
+
 async function openSummary(summaryId, lectureTitle, weekLabel) {
   if (!summaryId) return;
   state.currentSummaryId = summaryId;
-  navigate('summary-detail');
-  $('#summary-title').textContent = lectureTitle || '강의 요약';
-  $('#summary-meta').textContent = [state.currentCourseName, weekLabel].filter(Boolean).join(' · ');
-  $('#summary-content').innerHTML = '<p class="text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>요약을 불러오는 중...</p>';
+
+  $('#modal-summary-title').textContent = lectureTitle || '강의 요약';
+  $('#modal-summary-meta').textContent = [state.currentCourseName, weekLabel].filter(Boolean).join(' · ');
+  $('#modal-summary-content').innerHTML = '<p class="text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>요약을 불러오는 중...</p>';
+  _openSummaryModal();
 
   try {
     const summary = await api('GET', `/api/summaries/${encodeURIComponent(summaryId)}`);
     if (state.currentSummaryId !== summaryId) return;
-    $('#summary-title').textContent = summary.title || lectureTitle || '강의 요약';
-    renderMarkdown($('#summary-content'), summary.content || '');
+    $('#modal-summary-title').textContent = summary.title || lectureTitle || '강의 요약';
+    renderMarkdown($('#modal-summary-content'), summary.content || '');
   } catch (err) {
     if (state.currentSummaryId === summaryId) {
-      $('#summary-content').innerHTML = `<p class="text-red-400 text-sm">${esc(err.message)}</p>`;
+      $('#modal-summary-content').innerHTML = `<p class="text-red-400 text-sm">${esc(err.message)}</p>`;
     }
   }
 }
+
+$('#btn-close-summary-modal').addEventListener('click', _closeSummaryModal);
+$('#summary-modal-backdrop').addEventListener('click', _closeSummaryModal);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#summary-modal').classList.contains('hidden')) {
+    _closeSummaryModal();
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════
 // 로그 조회

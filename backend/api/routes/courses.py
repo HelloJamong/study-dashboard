@@ -1,3 +1,4 @@
+import asyncio
 from collections import Counter
 from pathlib import Path
 
@@ -6,6 +7,8 @@ from backend.api.summary_store import summary_for_lecture
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
+
+_courses_load_lock = asyncio.Lock()
 
 
 def _require_auth():
@@ -52,6 +55,20 @@ async def get_courses():
 async def get_stats():
     _require_auth()
 
+    if not app_state.details:
+        async with _courses_load_lock:
+            if not app_state.details:
+                try:
+                    courses = await app_state.scraper.fetch_courses()
+                    details = await app_state.scraper.fetch_all_details(courses, concurrency=3)
+                    app_state.courses = courses
+                    app_state.details = details
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"강의 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요. ({type(e).__name__})",
+                    ) from e
+
     total = sum(d.total_video_count for d in app_state.details if d)
     completed = sum(d.total_video_count - d.pending_video_count for d in app_state.details if d)
     pending_assignments = sum(d.pending_assignment_count for d in app_state.details if d)
@@ -62,6 +79,7 @@ async def get_stats():
         "pending_videos": total - completed,
         "pending_assignments": pending_assignments,
         "pending_quizzes": pending_quizzes,
+        "loaded": True,
     }
 
 
