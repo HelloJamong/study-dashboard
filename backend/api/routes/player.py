@@ -290,8 +290,6 @@ async def stop_play():
 
 
 @router.get("/status")
-# 인증 불필요: 로컬 단일 사용자 서비스이며, 재생 상태 polling에 사용됨.
-# 외부 노출 환경에서는 _require_auth() 추가 필요.
 async def get_status():
     pb = app_state.playback
     return {

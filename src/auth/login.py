@@ -17,6 +17,21 @@ _LOGIN_ERROR_KEYWORDS = (
 )
 
 
+async def _needs_login(page: Page) -> bool:
+    """로그인이 필요한 상태인지 확인한다 (URL + 로그인 버튼 존재 여부).
+
+    Canvas가 미인증 사용자를 'login' 문자열 없는 URL(예: /?)로
+    리다이렉트하는 경우에도 올바르게 감지한다.
+    """
+    if "login" in page.url:
+        return True
+    with suppress(Exception):
+        login_btn = await page.query_selector(".login_btn")
+        if login_btn and await login_btn.is_visible():
+            return True
+    return False
+
+
 async def _is_login_form_visible(page: Page) -> bool:
     """로그인 폼이 여전히 표시되는지 확인한다."""
     with suppress(Exception):
@@ -55,7 +70,9 @@ async def _wait_for_login_result(page: Page, dialog_seen: asyncio.Event) -> bool
         if "canvas.ssu.ac.kr" in page.url and "login" not in page.url:
             with suppress(Exception):
                 await page.wait_for_load_state("networkidle", timeout=_LOGIN_PAGE_TIMEOUT_MS)
-            return True
+            # 로그인 버튼이 사라졌는지 재확인 (Canvas가 /?로 리다이렉트하는 경우 대비)
+            if not await _needs_login(page):
+                return True
 
         if await _has_login_error_text(page):
             return False
@@ -71,7 +88,7 @@ async def _wait_for_login_result(page: Page, dialog_seen: asyncio.Event) -> bool
 
         await asyncio.sleep(0.25)
 
-    return "canvas.ssu.ac.kr" in page.url and "login" not in page.url
+    return "canvas.ssu.ac.kr" in page.url and not await _needs_login(page)
 
 
 async def perform_login(page: Page, username: str, password: str) -> bool:
@@ -107,7 +124,7 @@ async def perform_login(page: Page, username: str, password: str) -> bool:
 
 
 async def ensure_logged_in(page: Page, username: str, password: str) -> bool:
-    """현재 페이지가 로그인 페이지이면 로그인을 수행."""
-    if "login" not in page.url:
+    """현재 페이지가 로그인이 필요한 상태이면 로그인을 수행."""
+    if not await _needs_login(page):
         return True
     return await perform_login(page, username, password)

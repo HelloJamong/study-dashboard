@@ -121,13 +121,25 @@ async def download_lecture_media(
     stt_result: dict[str, Any] = {"enabled": False}
     summary_result: dict[str, Any] = {"enabled": False}
     if stt_enabled and normalized_rule in {"mp3", "both"} and mp3_path:
-        stage("transcribing", "STT 변환 중입니다.", 95)
+        stage("stt_loading", f"Whisper {stt_model or 'base'} 모델을 로딩하는 중입니다. 첫 실행 시 시간이 걸릴 수 있습니다.", 95)
         from src.stt.transcriber import transcribe
 
         loop = asyncio.get_running_loop()
+
+        def _on_model_loaded() -> None:
+            loop.call_soon_threadsafe(
+                lambda: on_stage("transcribing", "STT 변환 중입니다.", 96) if on_stage else None
+            )
+
         txt_path = await loop.run_in_executor(
             None,
-            partial(transcribe, mp3_path, model_size=stt_model or "base", language=stt_language or ""),
+            partial(
+                transcribe,
+                mp3_path,
+                model_size=stt_model or "base",
+                language=stt_language or "",
+                on_model_loaded=_on_model_loaded,
+            ),
         )
         files.append({"type": "txt", "path": str(txt_path)})
         audio_deleted = False

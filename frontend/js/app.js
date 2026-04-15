@@ -34,6 +34,7 @@ function navigate(page) {
   }
   if (page === 'settings') loadSettings();
   if (page === 'dashboard') loadStats();
+  if (page === 'summaries') loadSummaries();
   if (page === 'logs') loadLogs();
 }
 
@@ -603,10 +604,24 @@ async function pollDownloadTask(taskId, row, button) {
     const pct = Number.isFinite(task.progress_pct) ? ` ${Math.round(task.progress_pct)}%` : '';
     if (task.status === 'completed') {
       stopDownloadTaskPolling(taskId);
-      const files = task.result?.files || [];
-      const fileText = files.length ? `완료: ${files.map(f => f.type).join(', ')}` : '다운로드 완료';
+      const files = (task.result?.files || []).filter(f => f.deleted !== 'true');
+      const fileText = files.length
+        ? '완료: ' + files.map(f => f.path.split('/').pop()).join(', ')
+        : '다운로드 완료';
       setDownloadStatus(row, fileText, 'emerald');
       updateDownloadButton(button, '다시 다운로드', false);
+      // STT 결과 보기 버튼 동적 추가
+      const stt = task.result?.stt;
+      if (stt?.status === 'completed' && !row.querySelector('.btn-stt-view')) {
+        const sttBtn = document.createElement('button');
+        sttBtn.className = 'btn-stt-view px-3 py-1 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 text-sky-300 text-xs font-bold rounded-lg transition-all';
+        sttBtn.textContent = 'STT 보기';
+        sttBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openSttText(taskId, row.dataset.title);
+        });
+        row.querySelector('[data-actions]')?.appendChild(sttBtn);
+      }
       return;
     }
     if (task.status === 'failed') {
@@ -717,6 +732,48 @@ async function playLecture(courseId, url, title, weekLabel) {
     alert(`재생 시작 실패: ${err.message}`);
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// STT 텍스트 뷰어
+// ═══════════════════════════════════════════════════════════════
+function _openSttModal() {
+  const modal = $('#stt-modal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.body.style.overflow = 'hidden';
+}
+
+function _closeSttModal() {
+  const modal = $('#stt-modal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  document.body.style.overflow = '';
+}
+
+async function openSttText(taskId, lectureTitle) {
+  if (!taskId) return;
+  $('#modal-stt-title').textContent = lectureTitle || 'STT 변환 결과';
+  $('#modal-stt-meta').textContent = '';
+  $('#modal-stt-content').innerHTML = '<span class="text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>STT 결과를 불러오는 중...</span>';
+  _openSttModal();
+
+  try {
+    const res = await api('GET', `/api/tasks/${taskId}/stt`);
+    const meta = [res.model ? `모델: ${res.model}` : '', res.language ? `언어: ${res.language}` : ''].filter(Boolean).join(' · ');
+    $('#modal-stt-meta').textContent = meta;
+    $('#modal-stt-content').textContent = res.content || '(내용 없음)';
+  } catch (err) {
+    $('#modal-stt-content').innerHTML = `<span class="text-red-400 text-sm">${esc(err.message)}</span>`;
+  }
+}
+
+$('#btn-close-stt-modal').addEventListener('click', _closeSttModal);
+$('#stt-modal-backdrop').addEventListener('click', _closeSttModal);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#stt-modal').classList.contains('hidden')) {
+    _closeSttModal();
+  }
+});
 
 function _openSummaryModal() {
   const modal = $('#summary-modal');
@@ -1226,6 +1283,133 @@ $('#btn-schedule-apply').addEventListener('click', async () => {
     }
   }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// 요약 대시보드
+// ═══════════════════════════════════════════════════════════════
+let _summariesData = [];
+let _summariesFilter = '';
+
+async function loadSummaries() {
+  const loading = $('#summaries-loading');
+  const list = $('#summaries-list');
+  const empty = $('#summaries-empty');
+  const filterEl = $('#summaries-filter');
+
+  list.innerHTML = '';
+  filterEl.classList.add('hidden');
+  empty.classList.add('hidden');
+  loading.classList.remove('hidden');
+  loading.classList.add('flex');
+
+  try {
+    const res = await api('GET', '/api/summaries');
+    _summariesData = res.summaries || [];
+    _summariesFilter = '';
+    renderSummaries();
+  } catch (err) {
+    list.innerHTML = `<p class="text-red-400 text-sm">${esc(err.message)}</p>`;
+  } finally {
+    loading.classList.add('hidden');
+    loading.classList.remove('flex');
+  }
+}
+
+function renderSummaries() {
+  const list = $('#summaries-list');
+  const empty = $('#summaries-empty');
+  const filterEl = $('#summaries-filter');
+  list.innerHTML = '';
+
+  if (_summariesData.length === 0) {
+    filterEl.classList.add('hidden');
+    empty.classList.remove('hidden');
+    empty.classList.add('flex');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  // 과목 필터 버튼
+  const courses = [...new Set(_summariesData.map(s => s.course))].sort((a, b) => a.localeCompare(b, 'ko'));
+  filterEl.innerHTML = '';
+  filterEl.classList.remove('hidden');
+  ['', ...courses].forEach(course => {
+    const btn = document.createElement('button');
+    const active = _summariesFilter === course;
+    btn.className = `px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
+      active
+        ? 'bg-indigo-500 border-indigo-500 text-white'
+        : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-indigo-500/50'
+    }`;
+    btn.textContent = course || '전체';
+    btn.addEventListener('click', () => { _summariesFilter = course; renderSummaries(); });
+    filterEl.appendChild(btn);
+  });
+
+  const filtered = _summariesFilter
+    ? _summariesData.filter(s => s.course === _summariesFilter)
+    : _summariesData;
+
+  if (filtered.length === 0) {
+    empty.classList.remove('hidden');
+    empty.classList.add('flex');
+    return;
+  }
+
+  // 과목 → 주차 → 강의 그룹화
+  const grouped = {};
+  filtered.forEach(s => {
+    if (!grouped[s.course]) grouped[s.course] = {};
+    if (!grouped[s.course][s.week]) grouped[s.course][s.week] = [];
+    grouped[s.course][s.week].push(s);
+  });
+
+  Object.entries(grouped).forEach(([course, weeks]) => {
+    const section = document.createElement('div');
+    section.className = 'bg-[#1E293B] rounded-2xl border border-slate-700 overflow-hidden';
+
+    const header = document.createElement('div');
+    header.className = 'px-6 py-4 border-b border-slate-700 flex items-center gap-3';
+    header.innerHTML = `
+      <div class="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
+        <i class="fa-solid fa-book text-indigo-400 text-xs"></i>
+      </div>
+      <h3 class="font-bold text-white">${esc(course)}</h3>
+      <span class="ml-auto text-xs text-slate-500">${Object.values(weeks).flat().length}개</span>
+    `;
+    section.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'divide-y divide-slate-700/50';
+
+    Object.entries(weeks)
+      .sort(([a], [b]) => a.localeCompare(b, 'ko', { numeric: true }))
+      .forEach(([, items]) => {
+        items.forEach(item => {
+          const row = document.createElement('div');
+          row.className = 'flex items-center gap-3 px-6 py-3.5 hover:bg-slate-800/40 cursor-pointer transition-all';
+          row.innerHTML = `
+            <div class="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-file-lines text-emerald-400 text-xs"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm text-slate-200 truncate">${esc(item.title)}</p>
+              <p class="text-xs text-slate-500 mt-0.5">${esc(item.week)}</p>
+            </div>
+            <span class="shrink-0 px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs rounded-full font-medium">AI 요약</span>
+            <i class="fa-solid fa-chevron-right text-slate-600 text-xs shrink-0"></i>
+          `;
+          row.addEventListener('click', () => openSummary(item.id, item.title, item.week));
+          body.appendChild(row);
+        });
+      });
+
+    section.appendChild(body);
+    list.appendChild(section);
+  });
+}
+
+$('#btn-refresh-summaries').addEventListener('click', loadSummaries);
 
 // ═══════════════════════════════════════════════════════════════
 // 내비게이션 이벤트

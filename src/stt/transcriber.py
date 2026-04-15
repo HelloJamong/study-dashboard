@@ -11,7 +11,12 @@ from pathlib import Path
 _model_cache: dict = {}
 
 
-def transcribe(audio_path: Path, model_size: str = "base", language: str = "") -> Path:
+def transcribe(
+    audio_path: Path,
+    model_size: str = "base",
+    language: str = "",
+    on_model_loaded: "callable | None" = None,
+) -> Path:
     """
     faster-whisper로 음성 파일을 텍스트로 변환한다.
 
@@ -19,6 +24,7 @@ def transcribe(audio_path: Path, model_size: str = "base", language: str = "") -
         audio_path: mp3 또는 mp4 파일 경로
         model_size: Whisper 모델 크기 (tiny/base/small/medium/large)
         language: 언어 코드 (예: "ko"). 빈 문자열이면 자동 감지.
+        on_model_loaded: 모델 로딩 완료 시 호출되는 콜백 (선택). 스레드 안전해야 함.
 
     Returns:
         생성된 .txt 파일 경로
@@ -33,6 +39,12 @@ def transcribe(audio_path: Path, model_size: str = "base", language: str = "") -
     if model_size not in _model_cache:
         _model_cache.clear()
         _model_cache[model_size] = WhisperModel(model_size, device="cpu", compute_type="int8")
+
+    if on_model_loaded is not None:
+        try:
+            on_model_loaded()
+        except Exception:
+            pass  # 콜백 실패가 STT 변환을 막지 않도록
 
     model = _model_cache[model_size]
     transcribe_kwargs = {}

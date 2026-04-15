@@ -1,5 +1,36 @@
 # Changelog
 
+## [v26.04.11] - 2026-04-15
+
+### 요약 대시보드, STT 웹 통합, 로그인 안정성 개선
+
+#### 추가
+- **요약 대시보드** (`frontend/index.html`, `frontend/js/app.js`, `backend/api/routes/summaries.py`, `backend/api/summary_store.py`)
+  - 사이드바에 **요약 대시보드** 메뉴 항목 추가
+  - `GET /api/summaries` 엔드포인트 — `data/summaries/{term}/{course}/{week}/{title}.md` 구조를 재귀 스캔해 메타데이터 목록 반환
+  - `list_summaries()` 헬퍼 함수 (`summary_store.py`)
+  - 과목별 필터 칩 + 과목→주차 그룹화 카드 목록 UI
+  - 카드 클릭 시 기존 요약 팝업 모달 연결
+  - 요약이 없을 때 빈 상태 안내 표시
+- **STT 텍스트 조회 API** (`backend/api/routes/tasks.py`)
+  - `GET /api/tasks/{task_id}/stt` — 다운로드 태스크의 STT 결과 텍스트 파일 내용 반환
+  - 다운로드 완료 시 프론트엔드에서 "STT 보기" 버튼 동적 추가 및 모달 연결
+- **Whisper 모델 로딩 단계 세분화** (`src/downloader/pipeline.py`, `src/stt/transcriber.py`)
+  - STT 단계를 `stt_loading`(모델 로딩 중) → `transcribing`(변환 중)으로 분리
+  - `on_model_loaded` 콜백 추가로 웹 UI에 로딩 상태 실시간 반영
+
+#### 수정
+- **로그인 감지 로직 개선** (`src/auth/login.py`, `src/scraper/course_scraper.py`)
+  - `"login" in page.url` 단순 URL 체크 → `_needs_login()` 함수로 교체
+  - Canvas가 미인증 사용자를 `/login` 없는 URL(예: `/?`)로 리다이렉트하는 경우에도 `.login_btn` 버튼 존재 여부로 정확히 감지
+  - `ensure_logged_in()`, `fetch_courses()`, 세션 만료 감지 등 4개 호출부 일괄 적용
+- **`player.py` 서버 기동 오류 수정** (`backend/api/routes/player.py`)
+  - 존재하지 않는 `get_current_user`를 `src.config`에서 임포트하는 중복 코드 블록 제거
+  - `router = APIRouter()` 재선언으로 인한 라우터 덮어쓰기 문제 해결
+  - `/status` 엔드포인트 복원
+
+---
+
 ## [v26.04.10] - 2026-04-14
 
 ### 요약 팝업 모달, P0 보안/안정성 개선 (통계 자동 로딩·CORS·player status)

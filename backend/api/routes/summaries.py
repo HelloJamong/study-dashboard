@@ -1,7 +1,7 @@
 """강의 요약 조회 API."""
 
 from backend.api.state import app_state
-from backend.api.summary_store import read_summary
+from backend.api.summary_store import list_summaries, read_summary
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
@@ -10,6 +10,12 @@ router = APIRouter()
 def _require_auth() -> None:
     if not app_state.scraper:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+
+
+@router.get("")
+async def get_summaries_list():
+    _require_auth()
+    return {"summaries": list_summaries()}
 
 
 @router.get("/{summary_id}")

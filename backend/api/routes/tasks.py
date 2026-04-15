@@ -235,6 +235,33 @@ async def get_task(task_id: str):
     return task.to_dict()
 
 
+@router.get("/{task_id}/stt")
+async def get_stt_text(task_id: str):
+    _require_auth()
+    from pathlib import Path
+
+    task = task_manager.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
+    stt = task.result.get("stt") or {}
+    if stt.get("status") != "completed":
+        raise HTTPException(status_code=404, detail="STT 결과가 없습니다.")
+    txt_path_str = stt.get("txt_path")
+    if not txt_path_str:
+        raise HTTPException(status_code=404, detail="STT 파일 경로가 없습니다.")
+    txt_path = Path(txt_path_str)
+    if not txt_path.is_file():
+        raise HTTPException(status_code=404, detail="STT 텍스트 파일을 찾을 수 없습니다.")
+    content = txt_path.read_text(encoding="utf-8")
+    return {
+        "task_id": task_id,
+        "lecture_title": task.metadata.get("lecture_title", ""),
+        "content": content,
+        "model": stt.get("model", ""),
+        "language": stt.get("language", ""),
+    }
+
+
 @router.post("/{task_id}/cancel")
 async def cancel_task(task_id: str):
     _require_auth()

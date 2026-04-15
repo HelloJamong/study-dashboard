@@ -8,7 +8,7 @@ from pathlib import Path
 
 from playwright.async_api import Frame, Page, async_playwright
 
-from src.auth.login import ensure_logged_in
+from src.auth.login import _needs_login, ensure_logged_in
 from src.scraper.models import (
     Course,
     CourseDetail,
@@ -135,7 +135,7 @@ class CourseScraper:
         self._page, self._browser = await self._setup_browser()
         self._log("LMS 접속 중...")
         await self._page.goto(_DASHBOARD_URL, wait_until="domcontentloaded")
-        if "login" in self._page.url:
+        if await _needs_login(self._page):
             self._log("로그인 진행 중...")
             ok = await ensure_logged_in(self._page, self.username, self.password)
             if not ok:
@@ -154,7 +154,7 @@ class CourseScraper:
             await self._page.goto(_DASHBOARD_URL, wait_until="domcontentloaded")
 
         # 세션 만료 시 자동 재로그인
-        if "login" in self._page.url:
+        if await _needs_login(self._page):
             await self._ensure_session()
             await self._page.goto(_DASHBOARD_URL, wait_until="domcontentloaded")
 
@@ -203,7 +203,7 @@ class CourseScraper:
 
     async def _ensure_session(self) -> None:
         """세션 만료 시 자동 재로그인을 시도한다."""
-        if "login" in self._page.url:
+        if await _needs_login(self._page):
             self._log("세션 만료 감지 — 자동 재로그인 중...")
             ok = await ensure_logged_in(self._page, self.username, self.password)
             if not ok:
@@ -258,7 +258,7 @@ class CourseScraper:
         await page.goto(course.lectures_url, wait_until="networkidle", timeout=60000)
 
         # 세션 만료 시 재로그인
-        if "login" in page.url:
+        if await _needs_login(page):
             async with self._login_lock:
                 if not self._session_restored:
                     self._log("세션 만료 감지 — 자동 재로그인 중...")

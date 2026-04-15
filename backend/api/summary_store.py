@@ -108,6 +108,48 @@ def summary_for_lecture(term: str, course_name: str, week_label: str, lecture_ti
     }
 
 
+def list_summaries() -> list[dict[str, Any]]:
+    """저장된 요약 파일 목록을 반환한다.
+
+    canonical 저장 구조: summaries/{term}/{course}/{week}/{title}.md
+    """
+    items: list[dict[str, Any]] = []
+    sdir = summaries_dir()
+    if not sdir.exists():
+        return items
+
+    for path in sorted(sdir.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in _ALLOWED_SUMMARY_SUFFIXES:
+            continue
+        if not _is_allowed_summary_path(path):
+            continue
+        try:
+            rel = path.relative_to(sdir)
+            parts = rel.parts
+            # 구조: term / course / week / title.md (4 segments)
+            if len(parts) < 4:
+                continue
+            term = parts[0]
+            course = parts[1]
+            week = parts[2]
+            title = path.stem
+        except Exception:
+            continue
+        items.append(
+            {
+                "id": _encode_summary_id(path),
+                "term": term,
+                "course": course,
+                "week": week,
+                "title": title,
+                "format": "markdown" if path.suffix.lower() == ".md" else "text",
+            }
+        )
+    return items
+
+
 def read_summary(summary_id: str) -> dict[str, Any]:
     """요약 ID로 파일 내용을 읽는다."""
     path = _decode_summary_id(summary_id)
