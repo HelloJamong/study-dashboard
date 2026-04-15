@@ -274,6 +274,10 @@
               <span>처리됨 <span id="auto-processed" class="text-white font-medium">0</span>개</span>
               <span id="auto-next-row" class="hidden">다음 실행 <span id="auto-next" class="text-slate-300 font-medium"></span></span>
             </div>
+            <div id="auto-pipeline-row" class="hidden text-xs text-slate-400">
+              <span class="inline-flex items-center gap-1 text-sky-400 font-medium"><i class="fa-solid fa-gears fa-spin text-xs"></i> 파이프라인</span>
+              <span id="auto-pipeline-text" class="ml-1.5 text-slate-300"></span>
+            </div>
             <p id="auto-error" class="hidden text-xs text-red-400"></p>
           </div>
         </div>
@@ -286,10 +290,16 @@
             <p class="text-indigo-400 font-bold text-xs uppercase tracking-widest mb-1">Courses</p>
             <h1 class="text-2xl font-bold text-white">강의 목록</h1>
           </div>
-          <button id="btn-refresh" class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-sm text-slate-300 transition-all">
-            <i class="fa-solid fa-rotate-right"></i>
-            새로고침
-          </button>
+          <div class="flex items-center gap-2">
+            <button id="btn-deadline-check" class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-sm text-slate-300 transition-all">
+              <i class="fa-solid fa-bell"></i>
+              마감 확인
+            </button>
+            <button id="btn-refresh" class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-sm text-slate-300 transition-all">
+              <i class="fa-solid fa-rotate-right"></i>
+              새로고침
+            </button>
+          </div>
         </div>
 
         <!-- 학기 선택 (과거 요약 기록이 있을 때만 표시) -->
@@ -621,6 +631,13 @@
                   <input type="checkbox" name="TELEGRAM_AUTO_DELETE" class="sr-only peer" />
                   <div class="w-10 h-6 bg-slate-700 rounded-full peer peer-checked:bg-indigo-500 transition-colors after:content-[''] after:absolute after:top-1 after:left-1 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-4"></div>
                 </label>
+              </div>
+              <div class="flex items-center gap-3">
+                <button type="button" id="btn-telegram-test"
+                  class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium rounded-xl transition-all">
+                  연결 테스트
+                </button>
+                <span id="telegram-test-result" class="text-xs"></span>
               </div>
             </div>
           </div>

@@ -64,6 +64,23 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_event_logs_event_type_created_at ON event_logs(event_type, created_at DESC)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_event_logs_status_created_at ON event_logs(status, created_at DESC)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id            TEXT PRIMARY KEY,
+            kind          TEXT NOT NULL,
+            status        TEXT NOT NULL,
+            stage         TEXT NOT NULL,
+            message       TEXT NOT NULL DEFAULT '',
+            progress_pct  REAL,
+            result_json   TEXT NOT NULL DEFAULT '{}',
+            error         TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_kind_created_at ON tasks(kind, created_at DESC)")
 
 
 def init() -> None:
@@ -92,6 +109,61 @@ def set(key: str, value: str) -> None:
             """,
             (key, value),
         )
+
+
+def persist_task(task_id: str, kind: str, status: str, stage: str, message: str,
+                  progress_pct: float | None, result_json: str, error: str | None,
+                  metadata_json: str, created_at: str, updated_at: str) -> None:
+    """완료/실패된 task를 DB에 저장한다."""
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO tasks
+                (id, kind, status, stage, message, progress_pct, result_json, error,
+                 metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                status        = excluded.status,
+                stage         = excluded.stage,
+                message       = excluded.message,
+                progress_pct  = excluded.progress_pct,
+                result_json   = excluded.result_json,
+                error         = excluded.error,
+                updated_at    = excluded.updated_at
+            """,
+            (task_id, kind, status, stage, message, progress_pct, result_json,
+             error, metadata_json, created_at, updated_at),
+        )
+
+
+def load_tasks(limit: int = 200) -> list[dict]:
+    """최근 task 목록을 DB에서 로드한다."""
+    import json
+
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        for field in ("result_json", "metadata_json"):
+            try:
+                d[field] = json.loads(d[field] or "{}")
+            except Exception:
+                d[field] = {}
+        result.append(d)
+    return result
+
+
+def purge_old_tasks(days: int = 7) -> int:
+    """N일보다 오래된 task를 삭제한다. 삭제된 행 수를 반환한다."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM tasks WHERE created_at < datetime('now', ?)",
+            (f"-{days} days",),
+        )
+        return cur.rowcount
 
 
 def set_many(pairs: dict) -> None:

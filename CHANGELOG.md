@@ -1,5 +1,40 @@
 # Changelog
 
+## [v26.04.12] - 2026-04-15
+
+### P2-A: 텔레그램 테스트, 마감 알림, Task 영속화 + 프론트엔드 모듈 분리
+
+#### 추가
+- **텔레그램 연결 테스트** (`backend/api/routes/settings.py`, `frontend/index.html`, `frontend/js/app.js`)
+  - `POST /api/settings/telegram/test` 엔드포인트 — 봇 토큰·Chat ID 유효성 검증 후 테스트 메시지 전송
+  - 텔레그램 설정 섹션에 "연결 테스트" 버튼 추가 — 성공/실패 결과 인라인 표시
+- **마감 임박 알림 웹 연결** (`backend/api/routes/deadline.py`, `backend/main.py`, `backend/api/routes/auto.py`, `frontend/index.html`, `frontend/js/app.js`)
+  - `POST /api/deadline/check` 엔드포인트 — 미완료 과제·퀴즈 중 마감 임박 항목 조회, 텔레그램 설정 시 알림 자동 전송
+  - 강의 목록 페이지 우상단 "마감 확인" 버튼 — 임박 항목 목록 및 전송 결과 alert 표시
+  - 자동 모드 사이클 시작 시 강의 목록 갱신 직후 마감 임박 체크 자동 실행
+- **Task SQLite 영속화 + 오래된 Task 정리** (`src/db.py`, `backend/api/task_manager.py`, `backend/main.py`)
+  - `tasks` 테이블 스키마 추가 (`src/db.py`) — id, kind, status, stage, result, metadata 등 전체 상태 저장
+  - `persist_task()` / `load_tasks()` / `purge_old_tasks()` 헬퍼 함수 추가
+  - 완료·실패·취소 task를 DB에 자동 저장, 앱 시작 시 7일치 이력 복원, 만료 task 자동 정리
+- **단독 AI 요약 실행** (`backend/api/routes/tasks.py`, `frontend/js/app.js`)
+  - `POST /api/tasks/{task_id}/summarize` — STT 완료 task에서 별도 요약 task 생성
+  - 다운로드 완료 후 STT가 있으면 "요약 실행" 버튼 동적 추가, 완료 시 "요약 보기"로 전환
+- **자동 모드 스케줄 실시간 업데이트** (`backend/api/routes/auto.py`, `frontend/js/app.js`)
+  - `PUT /api/auto/schedule` 엔드포인트 — 자동 모드 재시작 없이 스케줄 시간 변경
+  - 스케줄 모달 적용 시 실행 중이면 stop+start 대신 PUT 호출
+
+#### 개선
+- **프론트엔드 JS 모듈 분리** (`frontend/js/`)
+  - `app.js` 60.7KB → 38.9KB (990줄)으로 축소
+  - `modals.js` — STT·요약 모달 (93줄)
+  - `logs.js` — 로그 조회·렌더링 (172줄)
+  - `settings.js` — 설정 폼·`applySettingsVisibility`·`loadAppSettings` (184줄)
+  - `summaries.js` — 요약 대시보드 (129줄)
+- **README 기술 스택 현행화** (`README.md`)
+  - Frontend 뱃지를 React/TypeScript/Vite → HTML5/JavaScript/Tailwind CSS로 교체
+
+---
+
 ## [v26.04.11] - 2026-04-15
 
 ### 요약 대시보드, STT 웹 통합, 로그인 안정성 개선

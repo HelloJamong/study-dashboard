@@ -40,7 +40,118 @@ def _next_schedule_time(schedule_hours: list[int]) -> datetime:
     return tomorrow.replace(hour=sorted(schedule_hours)[0], minute=0, second=0, microsecond=0)
 
 
-async def _run_auto_cycle(schedule_hours: list[int]) -> None:
+async def _run_post_play_pipeline(course, lec) -> None:
+    """재생 완료 후 다운로드 → STT → 요약 → 텔레그램 파이프라인을 실행한다.
+
+    Config 설정에 따라 각 단계를 선택적으로 실행한다.
+    """
+    from pathlib import Path
+
+    from src.config import Config
+    from src.downloader.pipeline import DownloadUnsupportedError, download_lecture_media
+    from src.notifier import telegram_notifier
+
+    telegram_enabled = Config.TELEGRAM_ENABLED == "true"
+    bot_token = Config.TELEGRAM_BOT_TOKEN or ""
+    chat_id = Config.TELEGRAM_CHAT_ID or ""
+
+    def _tg_ok() -> bool:
+        return telegram_enabled and bool(bot_token) and bool(chat_id)
+
+    loop = asyncio.get_running_loop()
+
+    # 재생 완료 텔레그램 알림
+    if _tg_ok():
+        with suppress(Exception):
+            await loop.run_in_executor(
+                None,
+                telegram_notifier.notify_playback_complete,
+                bot_token, chat_id,
+                course.long_name, lec.week_label, lec.title,
+            )
+
+    if Config.DOWNLOAD_ENABLED != "true" or Config.AUTO_DOWNLOAD_AFTER_PLAY != "true":
+        return
+
+    def _on_stage(stage: str, message: str, pct: float | None = None) -> None:
+        app_state.auto.pipeline_stage = message
+
+    try:
+        app_state.auto.pipeline_stage = "다운로드 준비 중..."
+        result = await download_lecture_media(
+            page=app_state.scraper._page,
+            lecture_url=lec.full_url,
+            lecture_title=lec.title,
+            week_label=lec.week_label,
+            course_name=course.long_name,
+            download_dir=Config.get_download_dir(),
+            rule=Config.get_download_rule(),
+            stt_enabled=Config.STT_ENABLED == "true",
+            stt_model=Config.WHISPER_MODEL or "base",
+            stt_language=Config.STT_LANGUAGE or "",
+            delete_audio_after_stt=Config.STT_DELETE_AUDIO_AFTER_TRANSCRIBE == "true",
+            ai_enabled=Config.AI_ENABLED == "true",
+            ai_agent=Config.AI_AGENT or "gemini",
+            ai_api_key=Config.GOOGLE_API_KEY or "",
+            ai_model=Config.GEMINI_MODEL or "",
+            summary_prompt_template=Config.get_summary_prompt_template(),
+            summary_prompt_extra=Config.SUMMARY_PROMPT_EXTRA or "",
+            delete_text_after_summary=Config.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE == "true",
+            on_stage=_on_stage,
+        )
+
+        # 요약 완료 시 텔레그램으로 요약 전송
+        summary_result = result.get("summary") or {}
+        if _tg_ok() and summary_result.get("status") == "completed":
+            summary_path_str = summary_result.get("summary_path", "")
+            if summary_path_str:
+                summary_path = Path(summary_path_str)
+                if summary_path.is_file():
+                    app_state.auto.pipeline_stage = "텔레그램으로 요약 전송 중..."
+                    summary_text = summary_path.read_text(encoding="utf-8")
+                    auto_delete: list[Path] = []
+                    if Config.TELEGRAM_AUTO_DELETE == "true":
+                        for f in result.get("files", []):
+                            if f.get("deleted") != "true":
+                                p = Path(f["path"])
+                                if p.exists():
+                                    auto_delete.append(p)
+                    with suppress(Exception):
+                        await loop.run_in_executor(
+                            None,
+                            telegram_notifier.notify_summary_complete,
+                            bot_token, chat_id,
+                            course.long_name, lec.week_label, lec.title,
+                            summary_text, summary_path,
+                            auto_delete or None,
+                        )
+
+    except DownloadUnsupportedError:
+        if _tg_ok():
+            with suppress(Exception):
+                await loop.run_in_executor(
+                    None,
+                    telegram_notifier.notify_download_unsupported,
+                    bot_token, chat_id,
+                    course.long_name, lec.week_label, lec.title,
+                )
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        app_state.auto.error = f"파이프라인 오류: {e}"
+        if _tg_ok():
+            with suppress(Exception):
+                await loop.run_in_executor(
+                    None,
+                    telegram_notifier.notify_auto_error,
+                    bot_token, chat_id,
+                    course.long_name, lec.week_label, lec.title, str(e),
+                )
+    finally:
+        app_state.auto.pipeline_stage = ""
+
+
+async def _run_auto_cycle() -> None:
     """미시청 강의를 한 사이클 순차 재생한다."""
     from backend.api.routes.player import _mark_lecture_completed, _write_playback_log
 
@@ -65,6 +176,27 @@ async def _run_auto_cycle(schedule_hours: list[int]) -> None:
         app_state.auto.error = f"강의 목록 갱신 실패: {e}"
         return
 
+    # 마감 임박 알림 (텔레그램 설정 시)
+    from src.config import Config
+
+    if (
+        Config.TELEGRAM_ENABLED == "true"
+        and Config.TELEGRAM_BOT_TOKEN
+        and Config.TELEGRAM_CHAT_ID
+    ):
+        from src.notifier.deadline_checker import check_and_notify_deadlines
+
+        loop = asyncio.get_running_loop()
+        with suppress(Exception):
+            await loop.run_in_executor(
+                None,
+                check_and_notify_deadlines,
+                courses,
+                details,
+                Config.TELEGRAM_BOT_TOKEN,
+                Config.TELEGRAM_CHAT_ID,
+            )
+
     # 미시청 강의 수집
     pending: list[tuple] = []
     for course, detail in zip(courses, details, strict=False):
@@ -77,7 +209,7 @@ async def _run_auto_cycle(schedule_hours: list[int]) -> None:
     if not pending:
         app_state.auto.current_lecture = ""
         app_state.auto.current_course = ""
-        next_time = _next_schedule_time(schedule_hours)
+        next_time = _next_schedule_time(app_state.auto.schedule_hours)
         app_state.auto.next_run_at = next_time.strftime("%H:%M")
         return
 
@@ -135,6 +267,7 @@ async def _run_auto_cycle(schedule_hours: list[int]) -> None:
                 if not updated:
                     app_state.playback.refresh_recommended = True
                 app_state.auto.processed_count += 1
+                await _run_post_play_pipeline(course, lec)
             else:
                 app_state.playback.status = "stopped"
 
@@ -157,13 +290,13 @@ async def _run_auto_cycle(schedule_hours: list[int]) -> None:
     app_state.auto.current_lecture = ""
 
 
-async def _auto_loop(schedule_hours: list[int]) -> None:
+async def _auto_loop() -> None:
     """자동 모드 백그라운드 루프 — 즉시 1회 실행 후 스케줄 대기."""
     first_run = True
     try:
         while app_state.auto.enabled:
             if not first_run:
-                next_time = _next_schedule_time(schedule_hours)
+                next_time = _next_schedule_time(app_state.auto.schedule_hours)
                 app_state.auto.next_run_at = next_time.strftime("%H:%M")
                 now = datetime.now(KST)
                 wait_sec = max(0.0, (next_time - now).total_seconds())
@@ -176,7 +309,7 @@ async def _auto_loop(schedule_hours: list[int]) -> None:
             if not app_state.auto.enabled:
                 return
 
-            await _run_auto_cycle(schedule_hours)
+            await _run_auto_cycle()
     finally:
         app_state.auto.enabled = False
         app_state.auto.current_course = ""
@@ -198,6 +331,7 @@ async def auto_status():
         "next_run_at": a.next_run_at or None,
         "error": a.error,
         "task_id": a.task_id,
+        "pipeline_stage": a.pipeline_stage or None,
     }
 
 
@@ -222,7 +356,7 @@ async def auto_start(req: AutoStartRequest):
 
     async def run(managed: ManagedTask):
         managed.update(stage="auto_loop", message="자동 모드가 실행 중입니다.")
-        await _auto_loop(hours)
+        await _auto_loop()
         if app_state.auto.error:
             managed.update(status="failed", stage="error", error=app_state.auto.error)
         return {"processed_count": app_state.auto.processed_count}
@@ -232,6 +366,22 @@ async def auto_start(req: AutoStartRequest):
     app_state.auto.task_id = managed.id
 
     return {"started": True, "schedule_hours": hours, "task_id": managed.id}
+
+
+class AutoScheduleUpdate(BaseModel):
+    schedule_hours: list[int]
+
+
+@router.put("/schedule")
+async def update_schedule(req: AutoScheduleUpdate):
+    _require_auth()
+    hours = sorted(set(req.schedule_hours))
+    if not hours or any(h < 0 or h > 23 for h in hours):
+        raise HTTPException(status_code=422, detail="스케줄 시간은 0~23 사이 값이어야 합니다.")
+    if len(hours) > 6:
+        raise HTTPException(status_code=422, detail="스케줄은 최대 6회까지 설정할 수 있습니다.")
+    app_state.auto.schedule_hours = hours
+    return {"updated": True, "schedule_hours": hours}
 
 
 @router.post("/stop")

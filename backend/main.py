@@ -1,7 +1,7 @@
 import os
 from contextlib import asynccontextmanager
 
-from backend.api.routes import auth, auto, courses, logs, player, settings, summaries, tasks
+from backend.api.routes import auth, auto, courses, deadline, logs, player, settings, summaries, tasks
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,6 +13,11 @@ async def lifespan(app: FastAPI):
 
     db.init()
     Config.load()
+
+    from backend.api.task_manager import task_manager
+    task_manager.purge_old(days=7)
+    task_manager.load_from_db(days=7)
+
     yield
     from backend.api.state import app_state
 
@@ -42,6 +47,7 @@ app.include_router(auto.router, prefix="/api/auto", tags=["auto"])
 app.include_router(summaries.router, prefix="/api/summaries", tags=["summaries"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
+app.include_router(deadline.router, prefix="/api/deadline", tags=["deadline"])
 
 
 @app.get("/api/health")

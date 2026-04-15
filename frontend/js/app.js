@@ -1,41 +1,32 @@
 import { api } from './api.js';
-import { renderMarkdown } from './markdown.js';
 import { state } from './state.js';
 import { $, $$, esc, fmtTime } from './utils.js';
-
-function autoResizeTextarea(el) {
-  el.style.height = 'auto';
-  el.style.height = el.scrollHeight + 'px';
-}
+import { applySettingsVisibility, loadAppSettings, loadSettings } from './settings.js';
+import { openSttText, openSummary } from './modals.js';
+import { loadSummaries } from './summaries.js';
+import { loadLogs, updateLogMenuState } from './logs.js';
 
 // ═══════════════════════════════════════════════════════════════
 // 페이지 라우팅
 // ═══════════════════════════════════════════════════════════════
 function navigate(page) {
   state.currentPage = page;
-
-  // 페이지 전환
-  $$('.page', $('#app-shell')).forEach(p => p.classList.add('hidden'));
+  $$('.page').forEach(el => el.classList.add('hidden'));
   const target = $(`#page-${page}`);
-  if (target) { target.classList.remove('hidden'); target.classList.add('fade-in'); }
-
-  // 사이드바 활성 상태
-  const activePage = ['course-detail', 'summary-detail'].includes(page) ? 'courses' : page;
-  $$('.nav-item').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.page === activePage);
-  });
-  updateLogMenuState(activePage === 'logs');
-
-  // 페이지별 초기화
-  if (page === 'courses') {
-    loadTerms();
-    if (state.selectedTerm === null && state.courses.length === 0) loadCourses();
-    if (state.selectedTerm !== null) loadSummaryTerm(state.selectedTerm);
+  if (target) {
+    target.classList.remove('hidden');
+    target.classList.add('fade-in');
   }
-  if (page === 'settings') loadSettings();
+  $$('.nav-item').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.page === page);
+  });
+  updateLogMenuState(page === 'logs');
   if (page === 'dashboard') loadStats();
-  if (page === 'summaries') loadSummaries();
+  if (page === 'courses' && state.selectedTerm === null && state.courses.length === 0) loadCourses();
+  if (page === 'courses') loadTerms();
+  if (page === 'settings') loadSettings();
   if (page === 'logs') loadLogs();
+  if (page === 'summaries') loadSummaries();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -63,59 +54,6 @@ function showLogin() {
   stopPolling();
   stopAutoPolling();
   stopAllDownloadTaskPolling();
-}
-
-function applySettingsVisibility(form = $('#settings-form')) {
-  if (!form) return;
-  const downloadEnabled = form.elements.DOWNLOAD_ENABLED?.checked ?? state.settings.DOWNLOAD_ENABLED === 'true';
-  const downloadRule = form.elements.DOWNLOAD_RULE?.value || state.settings.DOWNLOAD_RULE || 'mp4';
-  const sttSupported = downloadEnabled && ['mp3', 'both'].includes(downloadRule);
-  const sttEnabled = sttSupported && (form.elements.STT_ENABLED?.checked ?? state.settings.STT_ENABLED === 'true');
-  const downloadOptions = $('#download-options');
-  const sttSection = $('#stt-settings-section');
-  const sttWarning = $('#stt-rule-warning');
-  const sttDeleteRow = $('#stt-delete-audio-row');
-  const aiSection = $('#ai-settings-section');
-  const summaryDeleteTextRow = $('#summary-delete-text-row');
-
-  if (downloadOptions) {
-    downloadOptions.classList.toggle('opacity-50', !downloadEnabled);
-    $$('input, select', downloadOptions).forEach(el => { el.disabled = !downloadEnabled; });
-  }
-  if (form.elements.AUTO_DOWNLOAD_AFTER_PLAY) {
-    form.elements.AUTO_DOWNLOAD_AFTER_PLAY.disabled = !downloadEnabled;
-    if (!downloadEnabled) form.elements.AUTO_DOWNLOAD_AFTER_PLAY.checked = false;
-  }
-  if (sttSection) {
-    sttSection.classList.toggle('hidden', !downloadEnabled);
-    sttSection.classList.toggle('opacity-60', downloadEnabled && !sttSupported);
-    $$('input, select', sttSection).forEach(el => { el.disabled = !sttSupported; });
-  }
-  if (sttWarning) sttWarning.classList.toggle('hidden', sttSupported || !downloadEnabled);
-  if (!sttSupported) {
-    if (form.elements.STT_ENABLED) form.elements.STT_ENABLED.checked = false;
-    if (form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE) form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE.checked = false;
-  }
-  if (form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE) {
-    form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE.disabled = !sttEnabled;
-    if (!sttEnabled) form.elements.STT_DELETE_AUDIO_AFTER_TRANSCRIBE.checked = false;
-  }
-  if (sttDeleteRow) sttDeleteRow.classList.toggle('opacity-50', !sttEnabled);
-  if (aiSection) aiSection.classList.toggle('hidden', !sttEnabled);
-  if (!sttEnabled && form.elements.AI_ENABLED) form.elements.AI_ENABLED.checked = false;
-  const aiEnabled = sttEnabled && (form.elements.AI_ENABLED?.checked ?? state.settings.AI_ENABLED === 'true');
-  if (form.elements.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE) {
-    form.elements.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE.disabled = !aiEnabled;
-    if (!aiEnabled) form.elements.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE.checked = false;
-  }
-  if (summaryDeleteTextRow) summaryDeleteTextRow.classList.toggle('opacity-50', !aiEnabled);
-}
-
-async function loadAppSettings() {
-  const settings = await api('GET', '/api/settings');
-  state.settings = { ...state.settings, ...settings };
-  state.settingsLoaded = true;
-  return state.settings;
 }
 
 function showApp(userId) {
@@ -622,6 +560,30 @@ async function pollDownloadTask(taskId, row, button) {
         });
         row.querySelector('[data-actions]')?.appendChild(sttBtn);
       }
+      // AI 요약 버튼 동적 추가 (STT 완료 && 요약 없음 && AI 활성화)
+      const summary = task.result?.summary;
+      const aiEnabled = state.settings?.AI_ENABLED === 'true';
+      if (stt?.status === 'completed' && aiEnabled && !row.querySelector('.btn-summarize') && !row.querySelector('.btn-summary-view')) {
+        if (!summary || summary.status !== 'completed') {
+          const sumBtn = document.createElement('button');
+          sumBtn.className = 'btn-summarize px-3 py-1 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 text-violet-300 text-xs font-bold rounded-lg transition-all';
+          sumBtn.textContent = '요약 실행';
+          sumBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startSummarize(taskId, row, sumBtn);
+          });
+          row.querySelector('[data-actions]')?.appendChild(sumBtn);
+        } else if (summary.status === 'completed' && summary.summary_id) {
+          const viewBtn = document.createElement('button');
+          viewBtn.className = 'btn-summary-view px-3 py-1 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 text-violet-300 text-xs font-bold rounded-lg transition-all';
+          viewBtn.textContent = '요약 보기';
+          viewBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openSummary(summary.summary_id, row.dataset.title, row.dataset.week);
+          });
+          row.querySelector('[data-actions]')?.appendChild(viewBtn);
+        }
+      }
       return;
     }
     if (task.status === 'failed') {
@@ -670,6 +632,53 @@ async function startDownload(row, button) {
 async function startDownloadPayload(payload) {
   const res = await api('POST', '/api/tasks/download', payload);
   return res.task_id;
+}
+
+async function startSummarize(sourceTaskId, row, button) {
+  button.disabled = true;
+  button.textContent = '요약 중...';
+  button.classList.add('opacity-50', 'cursor-not-allowed');
+  try {
+    const res = await api('POST', `/api/tasks/${sourceTaskId}/summarize`);
+    const summarizeTaskId = res.task_id;
+    const poll = async () => {
+      try {
+        const task = await api('GET', `/api/tasks/${summarizeTaskId}`);
+        if (task.status === 'completed') {
+          button.remove();
+          const summaryId = task.result?.summary_id;
+          if (summaryId) {
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'btn-summary-view px-3 py-1 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 text-violet-300 text-xs font-bold rounded-lg transition-all';
+            viewBtn.textContent = '요약 보기';
+            viewBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openSummary(summaryId, row.dataset.title, row.dataset.week);
+            });
+            row.querySelector('[data-actions]')?.appendChild(viewBtn);
+          }
+          return;
+        }
+        if (task.status === 'failed' || task.status === 'cancelled') {
+          button.disabled = false;
+          button.textContent = '요약 재시도';
+          button.classList.remove('opacity-50', 'cursor-not-allowed');
+          return;
+        }
+        setTimeout(poll, 1500);
+      } catch {
+        button.disabled = false;
+        button.textContent = '요약 재시도';
+        button.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+    };
+    poll();
+  } catch (err) {
+    button.disabled = false;
+    button.textContent = '요약 실행';
+    button.classList.remove('opacity-50', 'cursor-not-allowed');
+    alert(`요약 시작 실패: ${err.message}`);
+  }
 }
 
 function startAutoDownloadAfterPlayback(playerStatus, messageLog) {
@@ -733,267 +742,7 @@ async function playLecture(courseId, url, title, weekLabel) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// STT 텍스트 뷰어
-// ═══════════════════════════════════════════════════════════════
-function _openSttModal() {
-  const modal = $('#stt-modal');
-  modal.classList.remove('hidden');
-  modal.classList.add('flex');
-  document.body.style.overflow = 'hidden';
-}
-
-function _closeSttModal() {
-  const modal = $('#stt-modal');
-  modal.classList.add('hidden');
-  modal.classList.remove('flex');
-  document.body.style.overflow = '';
-}
-
-async function openSttText(taskId, lectureTitle) {
-  if (!taskId) return;
-  $('#modal-stt-title').textContent = lectureTitle || 'STT 변환 결과';
-  $('#modal-stt-meta').textContent = '';
-  $('#modal-stt-content').innerHTML = '<span class="text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>STT 결과를 불러오는 중...</span>';
-  _openSttModal();
-
-  try {
-    const res = await api('GET', `/api/tasks/${taskId}/stt`);
-    const meta = [res.model ? `모델: ${res.model}` : '', res.language ? `언어: ${res.language}` : ''].filter(Boolean).join(' · ');
-    $('#modal-stt-meta').textContent = meta;
-    $('#modal-stt-content').textContent = res.content || '(내용 없음)';
-  } catch (err) {
-    $('#modal-stt-content').innerHTML = `<span class="text-red-400 text-sm">${esc(err.message)}</span>`;
-  }
-}
-
-$('#btn-close-stt-modal').addEventListener('click', _closeSttModal);
-$('#stt-modal-backdrop').addEventListener('click', _closeSttModal);
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#stt-modal').classList.contains('hidden')) {
-    _closeSttModal();
-  }
-});
-
-function _openSummaryModal() {
-  const modal = $('#summary-modal');
-  modal.classList.remove('hidden');
-  modal.classList.add('flex');
-  document.body.style.overflow = 'hidden';
-}
-
-function _closeSummaryModal() {
-  const modal = $('#summary-modal');
-  modal.classList.add('hidden');
-  modal.classList.remove('flex');
-  document.body.style.overflow = '';
-  state.currentSummaryId = null;
-}
-
-async function openSummary(summaryId, lectureTitle, weekLabel) {
-  if (!summaryId) return;
-  state.currentSummaryId = summaryId;
-
-  $('#modal-summary-title').textContent = lectureTitle || '강의 요약';
-  $('#modal-summary-meta').textContent = [state.currentCourseName, weekLabel].filter(Boolean).join(' · ');
-  $('#modal-summary-content').innerHTML = '<p class="text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>요약을 불러오는 중...</p>';
-  _openSummaryModal();
-
-  try {
-    const summary = await api('GET', `/api/summaries/${encodeURIComponent(summaryId)}`);
-    if (state.currentSummaryId !== summaryId) return;
-    $('#modal-summary-title').textContent = summary.title || lectureTitle || '강의 요약';
-    renderMarkdown($('#modal-summary-content'), summary.content || '');
-  } catch (err) {
-    if (state.currentSummaryId === summaryId) {
-      $('#modal-summary-content').innerHTML = `<p class="text-red-400 text-sm">${esc(err.message)}</p>`;
-    }
-  }
-}
-
-$('#btn-close-summary-modal').addEventListener('click', _closeSummaryModal);
-$('#summary-modal-backdrop').addEventListener('click', _closeSummaryModal);
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#summary-modal').classList.contains('hidden')) {
-    _closeSummaryModal();
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 로그 조회
-// ═══════════════════════════════════════════════════════════════
-const LOG_TYPE_LABELS = {
-  '': '전체 로그',
-  auth: '로그인/로그아웃',
-  settings: '설정 변경',
-  player: '영상 재생',
-  download: '다운로드',
-  stt: 'STT',
-  summary: 'AI 요약',
-};
-
-const LOG_EVENT_LABELS = {
-  auth: '인증',
-  settings: '설정',
-  player: '재생',
-  download: '다운로드',
-  stt: 'STT',
-  summary: 'AI 요약',
-};
-
-const LOG_ACTION_LABELS = {
-  login: '로그인',
-  logout: '로그아웃',
-  update: '설정 변경',
-  play_start: '재생 시작',
-  play_complete: '재생 완료',
-  play_failed: '재생 실패',
-  play_stop: '재생 중지',
-  play_stop_request: '중지 요청',
-  download_start: '다운로드 시작',
-  download_complete: '다운로드 완료',
-  download_failed: '다운로드 실패',
-  download_unsupported: '다운로드 미지원',
-  download_cancel: '다운로드 취소',
-  transcribe_complete: 'STT 완료',
-  transcribe_failed: 'STT 실패',
-  summary_complete: '요약 완료',
-  summary_failed: '요약 실패',
-};
-
-function updateLogMenuState(open = state.currentPage === 'logs') {
-  const submenu = $('#log-submenu');
-  const caret = $('#log-menu-caret');
-  if (submenu) submenu.classList.toggle('hidden', !open);
-  if (caret) caret.classList.toggle('rotate-180', open);
-  $$('.log-filter').forEach(btn => {
-    btn.classList.toggle('active', (btn.dataset.logType || '') === state.selectedLogType);
-  });
-}
-
-function statusBadgeClass(status) {
-  if (['success', 'completed'].includes(status)) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-  if (['failed', 'error'].includes(status)) return 'bg-red-500/10 text-red-400 border-red-500/20';
-  if (['started', 'running', 'requested'].includes(status)) return 'bg-sky-500/10 text-sky-400 border-sky-500/20';
-  if (['cancelled', 'cancelling'].includes(status)) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-  return 'bg-slate-700/50 text-slate-300 border-slate-600';
-}
-
-function setText(el, text) {
-  el.textContent = text ?? '';
-  return el;
-}
-
-function eventTargetText(event) {
-  return [
-    event.course_name,
-    event.week_label,
-    event.lecture_title,
-    event.target_type && event.target_id ? `${event.target_type}:${event.target_id}` : '',
-  ].filter(Boolean).join(' · ') || '—';
-}
-
-function eventMessageText(event) {
-  return event.error_message || event.message || event.error_code || '—';
-}
-
-function renderLogRows(events) {
-  const list = $('#logs-list');
-  const empty = $('#logs-empty');
-  const count = $('#logs-count');
-  list.innerHTML = '';
-  count.textContent = `${events.length}개`;
-  empty.classList.toggle('hidden', events.length !== 0);
-
-  events.forEach(event => {
-    const tr = document.createElement('tr');
-    tr.className = 'hover:bg-slate-800/40 align-top';
-
-    const time = document.createElement('td');
-    time.className = 'px-4 py-3 text-xs text-slate-400 whitespace-nowrap';
-    setText(time, event.created_at);
-
-    const type = document.createElement('td');
-    type.className = 'px-4 py-3 whitespace-nowrap';
-    const typeWrap = document.createElement('div');
-    typeWrap.className = 'flex flex-col gap-0.5';
-    const eventLabel = document.createElement('span');
-    eventLabel.className = 'text-sm font-semibold text-slate-200';
-    setText(eventLabel, LOG_EVENT_LABELS[event.event_type] || event.event_type);
-    const actionLabel = document.createElement('span');
-    actionLabel.className = 'text-xs text-slate-500';
-    setText(actionLabel, LOG_ACTION_LABELS[event.action] || event.action);
-    typeWrap.append(eventLabel, actionLabel);
-    type.appendChild(typeWrap);
-
-    const status = document.createElement('td');
-    status.className = 'px-4 py-3 whitespace-nowrap';
-    const badge = document.createElement('span');
-    badge.className = `inline-flex px-2 py-0.5 rounded-full border text-xs font-medium ${statusBadgeClass(event.status)}`;
-    setText(badge, event.status);
-    status.appendChild(badge);
-
-    const target = document.createElement('td');
-    target.className = 'px-4 py-3 text-xs text-slate-300 min-w-[220px]';
-    setText(target, eventTargetText(event));
-
-    const message = document.createElement('td');
-    message.className = 'px-4 py-3 text-xs text-slate-300';
-    const msg = document.createElement('p');
-    msg.className = event.error_message ? 'text-red-300' : 'text-slate-300';
-    setText(msg, eventMessageText(event));
-    message.appendChild(msg);
-    if (event.log_path) {
-      const logPath = document.createElement('p');
-      logPath.className = 'mt-1 text-[11px] text-slate-500 break-all';
-      setText(logPath, `로그 파일: ${event.log_path}`);
-      message.appendChild(logPath);
-    }
-
-    const actor = document.createElement('td');
-    actor.className = 'px-4 py-3 text-xs text-slate-400 whitespace-nowrap';
-    setText(actor, event.actor_user_id || '—');
-
-    tr.append(time, type, status, target, message, actor);
-    list.appendChild(tr);
-  });
-}
-
-async function loadLogs() {
-  const loading = $('#logs-loading');
-  const list = $('#logs-list');
-  const empty = $('#logs-empty');
-  const label = LOG_TYPE_LABELS[state.selectedLogType] || '로그';
-  $('#logs-title').textContent = label;
-  $('#logs-subtitle').textContent = state.selectedLogType
-    ? `${label} 이벤트만 조회합니다.`
-    : '전체 로그를 조회합니다.';
-  updateLogMenuState(true);
-  loading.classList.remove('hidden');
-  loading.classList.add('flex');
-  empty.classList.add('hidden');
-  list.innerHTML = '';
-
-  try {
-    const params = new URLSearchParams({ limit: '100' });
-    if (state.selectedLogType) params.set('event_type', state.selectedLogType);
-    const payload = await api('GET', `/api/logs?${params.toString()}`);
-    renderLogRows(payload.events || []);
-  } catch (err) {
-    list.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-sm text-red-400">${esc(err.message)}</td></tr>`;
-    $('#logs-count').textContent = '';
-  } finally {
-    loading.classList.add('hidden');
-    loading.classList.remove('flex');
-  }
-}
-
-function selectLogType(type) {
-  state.selectedLogType = type || '';
-  navigate('logs');
-}
-
-// 강의 상세에서 목록으로 돌아가기
+// ── 강의 상세에서 목록으로 돌아가기
 $('#btn-back-courses').addEventListener('click', () => {
   navigate('courses');
 });
@@ -1003,7 +752,7 @@ $('#btn-back-course-detail').addEventListener('click', () => {
   navigate(state.currentCourseId ? 'course-detail' : 'courses');
 });
 
-// 새로고침
+// 강의 목록 새로고침
 $('#btn-refresh').addEventListener('click', async () => {
   const btn = $('#btn-refresh');
   btn.disabled = true;
@@ -1019,105 +768,38 @@ $('#btn-refresh').addEventListener('click', async () => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 설정
-// ═══════════════════════════════════════════════════════════════
-async function loadSettings() {
+// 마감 임박 체크
+$('#btn-deadline-check').addEventListener('click', async () => {
+  const btn = $('#btn-deadline-check');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 확인 중...';
   try {
-    const s = await loadAppSettings();
-    const form = $('#settings-form');
-
-    Object.entries(s).forEach(([key, val]) => {
-      const el = form.elements[key];
-      if (!el) return;
-      if (el.type === 'checkbox') {
-        el.checked = val === 'true';
-      } else {
-        el.value = val || '';
-      }
-    });
-    const modelSelect = form.elements['GEMINI_MODEL'];
-    if (modelSelect && !modelSelect.value) modelSelect.value = 'gemini-2.5-flash';
-    const prompt = $('#summary-prompt-template');
-    if (prompt) {
-      prompt.value = s.SUMMARY_PROMPT_TEMPLATE || s.SUMMARY_PROMPT_DEFAULT || '';
-      prompt.readOnly = true;
-      $('#btn-summary-prompt-edit').textContent = '편집';
-      autoResizeTextarea(prompt);
+    const res = await api('POST', '/api/deadline/check');
+    const { found, sent, telegram_enabled, items } = res;
+    if (found === 0) {
+      alert('마감 임박 항목이 없습니다.');
+    } else {
+      const lines = items.map(item =>
+        `[${item.type}] ${item.course} · ${item.title}\n  마감: ${item.end_date} (${item.remaining_hours}시간 남음)`
+      ).join('\n\n');
+      const tgMsg = telegram_enabled
+        ? `\n\n텔레그램으로 ${sent}건 알림 전송됨`
+        : '\n\n(텔레그램 미설정 — 알림 미전송)';
+      alert(`마감 임박 ${found}건 발견${tgMsg}\n\n${lines}`);
     }
-    applySettingsVisibility(form);
-  } catch {}
-}
-
-$('#settings-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const payload = {};
-
-  new FormData(form); // trigger validation
-
-  $$('input, select, textarea', form).forEach(el => {
-    if (!el.name) return;
-    if (el.type === 'checkbox') {
-      payload[el.name] = el.checked ? 'true' : 'false';
-    } else if (el.value.trim()) {
-      payload[el.name] = el.value.trim();
-    }
-  });
-  if (payload.DOWNLOAD_ENABLED !== 'true') {
-    payload.AUTO_DOWNLOAD_AFTER_PLAY = 'false';
-    payload.STT_ENABLED = 'false';
-    payload.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = 'false';
-    payload.AI_ENABLED = 'false';
-    payload.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = 'false';
-  } else if (!['mp3', 'both'].includes(payload.DOWNLOAD_RULE || 'mp4')) {
-    payload.STT_ENABLED = 'false';
-    payload.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = 'false';
-    payload.AI_ENABLED = 'false';
-    payload.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = 'false';
-  } else if (payload.STT_ENABLED !== 'true') {
-    payload.STT_DELETE_AUDIO_AFTER_TRANSCRIBE = 'false';
-    payload.AI_ENABLED = 'false';
-    payload.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = 'false';
-  } else if (payload.AI_ENABLED !== 'true') {
-    payload.SUMMARY_DELETE_TEXT_AFTER_SUMMARIZE = 'false';
-  }
-
-  try {
-    await api('PUT', '/api/settings', payload);
-    await loadAppSettings();
-    applySettingsVisibility(form);
-    const msg = $('#settings-success');
-    msg.classList.remove('hidden');
-    setTimeout(() => msg.classList.add('hidden'), 3000);
   } catch (err) {
-    alert(`저장 실패: ${err.message}`);
+    alert(`마감 확인 실패: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-bell"></i> 마감 확인';
   }
 });
 
-['DOWNLOAD_ENABLED', 'DOWNLOAD_RULE', 'AUTO_DOWNLOAD_AFTER_PLAY', 'STT_ENABLED', 'AI_ENABLED'].forEach(name => {
-  const el = $('#settings-form').elements[name];
-  if (el) el.addEventListener('change', () => applySettingsVisibility());
-});
-
-$('#btn-summary-prompt-reset').addEventListener('click', () => {
-  const prompt = $('#summary-prompt-template');
-  prompt.value = state.settings.SUMMARY_PROMPT_DEFAULT || '';
-  prompt.readOnly = true;
-  $('#btn-summary-prompt-edit').textContent = '편집';
-  autoResizeTextarea(prompt);
-});
-
-$('#btn-summary-prompt-edit').addEventListener('click', () => {
-  const prompt = $('#summary-prompt-template');
-  prompt.readOnly = !prompt.readOnly;
-  $('#btn-summary-prompt-edit').textContent = prompt.readOnly ? '편집' : '편집 완료';
-  if (!prompt.readOnly) prompt.focus();
-});
-
-$('#summary-prompt-template').addEventListener('input', function () {
-  autoResizeTextarea(this);
-});
+// 로그 필터 선택 (state 업데이트 + navigate)
+function selectLogType(type) {
+  state.selectedLogType = type || '';
+  navigate('logs');
+}
 
 // ═══════════════════════════════════════════════════════════════
 // 자동 모드
@@ -1163,6 +845,12 @@ async function updateAutoUI() {
         $('#auto-next').textContent = s.next_run_at;
       } else {
         $('#auto-next-row').classList.add('hidden');
+      }
+      if (s.pipeline_stage) {
+        $('#auto-pipeline-row').classList.remove('hidden');
+        $('#auto-pipeline-text').textContent = s.pipeline_stage;
+      } else {
+        $('#auto-pipeline-row').classList.add('hidden');
       }
       if (s.error) {
         $('#auto-error').textContent = s.error;
@@ -1210,7 +898,6 @@ function _isPresetActive(hours) {
 }
 
 function renderScheduleModal() {
-  // 빠른 선택 프리셋
   const presetsEl = $('#schedule-presets');
   presetsEl.innerHTML = '';
   _SCHEDULE_PRESETS.forEach((hours, i) => {
@@ -1229,7 +916,6 @@ function renderScheduleModal() {
     presetsEl.appendChild(btn);
   });
 
-  // 시간 그리드 (00~23)
   const gridEl = $('#schedule-hours-grid');
   gridEl.innerHTML = '';
   for (let h = 0; h < 24; h++) {
@@ -1272,144 +958,15 @@ $('#btn-schedule-apply').addEventListener('click', async () => {
   updateScheduleLabel(hours);
   $('#modal-schedule').classList.add('hidden');
 
-  // 자동 모드 실행 중이면 새 스케줄로 재시작
   if (state.autoEnabled) {
     try {
-      await api('POST', '/api/auto/stop');
-      await api('POST', '/api/auto/start', { schedule_hours: hours });
+      await api('PUT', '/api/auto/schedule', { schedule_hours: hours });
       updateAutoUI();
     } catch (err) {
       alert(`스케줄 업데이트 실패: ${err.message}`);
     }
   }
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 요약 대시보드
-// ═══════════════════════════════════════════════════════════════
-let _summariesData = [];
-let _summariesFilter = '';
-
-async function loadSummaries() {
-  const loading = $('#summaries-loading');
-  const list = $('#summaries-list');
-  const empty = $('#summaries-empty');
-  const filterEl = $('#summaries-filter');
-
-  list.innerHTML = '';
-  filterEl.classList.add('hidden');
-  empty.classList.add('hidden');
-  loading.classList.remove('hidden');
-  loading.classList.add('flex');
-
-  try {
-    const res = await api('GET', '/api/summaries');
-    _summariesData = res.summaries || [];
-    _summariesFilter = '';
-    renderSummaries();
-  } catch (err) {
-    list.innerHTML = `<p class="text-red-400 text-sm">${esc(err.message)}</p>`;
-  } finally {
-    loading.classList.add('hidden');
-    loading.classList.remove('flex');
-  }
-}
-
-function renderSummaries() {
-  const list = $('#summaries-list');
-  const empty = $('#summaries-empty');
-  const filterEl = $('#summaries-filter');
-  list.innerHTML = '';
-
-  if (_summariesData.length === 0) {
-    filterEl.classList.add('hidden');
-    empty.classList.remove('hidden');
-    empty.classList.add('flex');
-    return;
-  }
-  empty.classList.add('hidden');
-
-  // 과목 필터 버튼
-  const courses = [...new Set(_summariesData.map(s => s.course))].sort((a, b) => a.localeCompare(b, 'ko'));
-  filterEl.innerHTML = '';
-  filterEl.classList.remove('hidden');
-  ['', ...courses].forEach(course => {
-    const btn = document.createElement('button');
-    const active = _summariesFilter === course;
-    btn.className = `px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
-      active
-        ? 'bg-indigo-500 border-indigo-500 text-white'
-        : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-indigo-500/50'
-    }`;
-    btn.textContent = course || '전체';
-    btn.addEventListener('click', () => { _summariesFilter = course; renderSummaries(); });
-    filterEl.appendChild(btn);
-  });
-
-  const filtered = _summariesFilter
-    ? _summariesData.filter(s => s.course === _summariesFilter)
-    : _summariesData;
-
-  if (filtered.length === 0) {
-    empty.classList.remove('hidden');
-    empty.classList.add('flex');
-    return;
-  }
-
-  // 과목 → 주차 → 강의 그룹화
-  const grouped = {};
-  filtered.forEach(s => {
-    if (!grouped[s.course]) grouped[s.course] = {};
-    if (!grouped[s.course][s.week]) grouped[s.course][s.week] = [];
-    grouped[s.course][s.week].push(s);
-  });
-
-  Object.entries(grouped).forEach(([course, weeks]) => {
-    const section = document.createElement('div');
-    section.className = 'bg-[#1E293B] rounded-2xl border border-slate-700 overflow-hidden';
-
-    const header = document.createElement('div');
-    header.className = 'px-6 py-4 border-b border-slate-700 flex items-center gap-3';
-    header.innerHTML = `
-      <div class="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
-        <i class="fa-solid fa-book text-indigo-400 text-xs"></i>
-      </div>
-      <h3 class="font-bold text-white">${esc(course)}</h3>
-      <span class="ml-auto text-xs text-slate-500">${Object.values(weeks).flat().length}개</span>
-    `;
-    section.appendChild(header);
-
-    const body = document.createElement('div');
-    body.className = 'divide-y divide-slate-700/50';
-
-    Object.entries(weeks)
-      .sort(([a], [b]) => a.localeCompare(b, 'ko', { numeric: true }))
-      .forEach(([, items]) => {
-        items.forEach(item => {
-          const row = document.createElement('div');
-          row.className = 'flex items-center gap-3 px-6 py-3.5 hover:bg-slate-800/40 cursor-pointer transition-all';
-          row.innerHTML = `
-            <div class="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-              <i class="fa-solid fa-file-lines text-emerald-400 text-xs"></i>
-            </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm text-slate-200 truncate">${esc(item.title)}</p>
-              <p class="text-xs text-slate-500 mt-0.5">${esc(item.week)}</p>
-            </div>
-            <span class="shrink-0 px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs rounded-full font-medium">AI 요약</span>
-            <i class="fa-solid fa-chevron-right text-slate-600 text-xs shrink-0"></i>
-          `;
-          row.addEventListener('click', () => openSummary(item.id, item.title, item.week));
-          body.appendChild(row);
-        });
-      });
-
-    section.appendChild(body);
-    list.appendChild(section);
-  });
-}
-
-$('#btn-refresh-summaries').addEventListener('click', loadSummaries);
 
 // ═══════════════════════════════════════════════════════════════
 // 내비게이션 이벤트

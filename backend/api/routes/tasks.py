@@ -262,6 +262,93 @@ async def get_stt_text(task_id: str):
     }
 
 
+@router.post("/{task_id}/summarize")
+async def start_summarize(task_id: str):
+    _require_auth()
+    import asyncio
+    from functools import partial
+    from pathlib import Path
+
+    if Config.AI_ENABLED != "true":
+        raise HTTPException(status_code=409, detail="설정에서 AI 요약을 먼저 활성화하세요.")
+    if not Config.GOOGLE_API_KEY:
+        raise HTTPException(status_code=409, detail="Gemini API 키가 설정되어 있지 않습니다.")
+    if not Config.GEMINI_MODEL:
+        raise HTTPException(status_code=409, detail="Gemini 모델이 설정되어 있지 않습니다.")
+
+    task = task_manager.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
+
+    stt = (task.result or {}).get("stt") or {}
+    if stt.get("status") != "completed":
+        raise HTTPException(status_code=409, detail="STT 결과가 없습니다.")
+
+    txt_path_str = stt.get("txt_path", "")
+    txt_path = Path(txt_path_str) if txt_path_str else None
+    if not txt_path or not txt_path.is_file():
+        raise HTTPException(status_code=404, detail="STT 텍스트 파일을 찾을 수 없습니다.")
+
+    course_name = task.metadata.get("course_name", "")
+    lecture_title = task.metadata.get("lecture_title", "")
+    week_label = task.metadata.get("week_label", "")
+
+    async def run(managed: ManagedTask):
+        from functools import partial
+
+        from backend.api.summary_store import encode_summary_id
+        from src.summarizer.summarizer import summarize
+
+        managed.update(stage="summarizing", message="AI 요약 중입니다.")
+        loop = asyncio.get_running_loop()
+        summary_path = await loop.run_in_executor(
+            None,
+            partial(
+                summarize,
+                txt_path,
+                agent=Config.AI_AGENT or "gemini",
+                api_key=Config.GOOGLE_API_KEY,
+                model=Config.GEMINI_MODEL,
+                prompt_template=Config.get_summary_prompt_template(),
+                extra_prompt=Config.SUMMARY_PROMPT_EXTRA or "",
+                course_name=course_name,
+            ),
+        )
+        summary_id = encode_summary_id(summary_path)
+        event_log.record_event(
+            event_type="summary",
+            action="summary_complete",
+            status="success",
+            actor_user_id=app_state.user_id or None,
+            target_type="lecture",
+            course_name=course_name,
+            lecture_title=lecture_title,
+            week_label=week_label,
+            message="AI 요약이 완료되었습니다.",
+            metadata={"task_id": managed.id, "source_task_id": task_id},
+        )
+        return {
+            "status": "completed",
+            "summary_path": str(summary_path),
+            "summary_id": summary_id,
+            "txt_path": txt_path_str,
+            "agent": Config.AI_AGENT or "gemini",
+            "model": Config.GEMINI_MODEL,
+        }
+
+    managed = task_manager.create(
+        "summarize",
+        run,
+        metadata={
+            "source_task_id": task_id,
+            "course_name": course_name,
+            "lecture_title": lecture_title,
+            "week_label": week_label,
+        },
+    )
+    return {"started": True, "task_id": managed.id}
+
+
 @router.post("/{task_id}/cancel")
 async def cancel_task(task_id: str):
     _require_auth()

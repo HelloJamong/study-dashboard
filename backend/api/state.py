@@ -30,6 +30,7 @@ class AutoModeState:
     processed_count: int = 0
     next_run_at: str = ""
     error: str | None = None
+    pipeline_stage: str = ""  # 재생 후 파이프라인 단계 메시지 (다운로드/STT/요약/텔레그램)
 
 
 @dataclass

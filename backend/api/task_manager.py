@@ -14,6 +14,8 @@ from typing import Any
 
 TaskFactory = Callable[["ManagedTask"], Awaitable[Any]]
 
+_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -75,6 +77,29 @@ class ManagedTask:
         }
 
 
+def _persist_task(managed: "ManagedTask") -> None:
+    """완료/실패/취소된 task를 SQLite에 저장한다. 오류는 무시한다."""
+    import json
+    from contextlib import suppress
+
+    with suppress(Exception):
+        from src import db
+
+        db.persist_task(
+            task_id=managed.id,
+            kind=managed.kind,
+            status=managed.status,
+            stage=managed.stage,
+            message=managed.message,
+            progress_pct=managed.progress_pct,
+            result_json=json.dumps(managed.result, ensure_ascii=False),
+            error=managed.error,
+            metadata_json=json.dumps(managed.metadata, ensure_ascii=False),
+            created_at=managed.created_at,
+            updated_at=managed.updated_at,
+        )
+
+
 class TaskManager:
     def __init__(self) -> None:
         self._tasks: dict[str, ManagedTask] = {}
@@ -104,6 +129,9 @@ class TaskManager:
                 managed.update(status="cancelled", stage="cancelled", message="작업이 취소되었습니다.")
             except Exception as e:
                 managed.update(status="failed", stage="failed", error=str(e), message="작업이 실패했습니다.")
+            finally:
+                if managed.status in _TERMINAL_STATUSES:
+                    _persist_task(managed)
 
         task = asyncio.create_task(runner(), name=f"study-helper:{kind}:{task_id}")
         managed.task = task
@@ -134,6 +162,63 @@ class TaskManager:
 
     def clear(self) -> None:
         self._tasks.clear()
+
+    def load_from_db(self, days: int = 7) -> int:
+        """DB에 저장된 최근 N일치 완료 task를 인메모리 레지스트리에 복원한다.
+
+        재시작 후에도 완료된 task 이력을 볼 수 있게 한다.
+        이미 레지스트리에 있는 task는 덮어쓰지 않는다.
+        """
+        import json
+        from contextlib import suppress
+
+        with suppress(Exception):
+            from src import db
+
+            rows = db.load_tasks(limit=200)
+            loaded = 0
+            for row in rows:
+                if row["id"] in self._tasks:
+                    continue
+                managed = ManagedTask(
+                    id=row["id"],
+                    kind=row["kind"],
+                    status=row["status"],
+                    stage=row["stage"],
+                    message=row["message"],
+                    progress_pct=row["progress_pct"],
+                    result=row["result_json"] if isinstance(row["result_json"], dict) else {},
+                    error=row["error"],
+                    metadata=row["metadata_json"] if isinstance(row["metadata_json"], dict) else {},
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                )
+                self._tasks[managed.id] = managed
+                loaded += 1
+            return loaded
+        return 0
+
+    def purge_old(self, days: int = 7) -> int:
+        """인메모리와 DB에서 N일 초과 완료 task를 정리한다."""
+        from contextlib import suppress
+        from datetime import UTC, datetime, timedelta
+
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        cutoff_iso = cutoff.isoformat()
+        removed = [
+            tid for tid, t in self._tasks.items()
+            if t.status in _TERMINAL_STATUSES and t.created_at < cutoff_iso
+        ]
+        for tid in removed:
+            del self._tasks[tid]
+
+        db_removed = 0
+        with suppress(Exception):
+            from src import db
+
+            db_removed = db.purge_old_tasks(days=days)
+
+        return len(removed) + db_removed
 
 
 task_manager = TaskManager()

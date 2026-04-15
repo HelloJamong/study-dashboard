@@ -108,6 +108,11 @@ def summary_for_lecture(term: str, course_name: str, week_label: str, lecture_ti
     }
 
 
+def encode_summary_id(path: Path) -> str:
+    """요약 파일 경로를 공유 가능한 ID로 인코딩한다."""
+    return _encode_summary_id(path)
+
+
 def list_summaries() -> list[dict[str, Any]]:
     """저장된 요약 파일 목록을 반환한다.
 

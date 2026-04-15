@@ -63,6 +63,25 @@ class SettingsUpdate(BaseModel):
     TELEGRAM_AUTO_DELETE: str | None = None
 
 
+@router.post("/telegram/test")
+async def test_telegram():
+    _require_auth()
+    import asyncio
+
+    from src.notifier.telegram_notifier import verify_bot
+
+    token = Config.TELEGRAM_BOT_TOKEN or ""
+    chat_id = Config.TELEGRAM_CHAT_ID or ""
+    if not token or not chat_id:
+        raise HTTPException(status_code=409, detail="텔레그램 봇 토큰과 Chat ID를 먼저 저장하세요.")
+
+    loop = asyncio.get_running_loop()
+    ok, error_msg = await loop.run_in_executor(None, verify_bot, token, chat_id)
+    if not ok:
+        raise HTTPException(status_code=502, detail=error_msg or "텔레그램 연결에 실패했습니다.")
+    return {"success": True}
+
+
 @router.put("")
 async def update_settings(body: SettingsUpdate):
     _require_auth()
