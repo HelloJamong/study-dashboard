@@ -448,16 +448,34 @@ async function loadCourseDetail(courseId, courseName) {
           playBtn.textContent = '재생';
           actions.appendChild(playBtn);
         }
+        const dlInfo = lec.download_info || {};
+        const aiEnabled = settings.AI_ENABLED === 'true';
         if (settings.DOWNLOAD_ENABLED === 'true') {
-          const downloadBtn = document.createElement('button');
-          downloadBtn.className = 'btn-download-lec px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold rounded-lg transition-all';
-          downloadBtn.textContent = '영상 다운로드';
-          actions.appendChild(downloadBtn);
-          const downloadStatus = document.createElement('span');
-          downloadStatus.className = 'download-status hidden text-xs text-slate-400';
-          actions.appendChild(downloadStatus);
+          if (dlInfo.exists) {
+            const badge = document.createElement('span');
+            badge.className = 'shrink-0 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-full font-medium';
+            badge.textContent = '다운로드됨';
+            actions.appendChild(badge);
+            if (aiEnabled && !(lec.summary && lec.summary.available)) {
+              const sumFromFileBtn = document.createElement('button');
+              sumFromFileBtn.className = 'btn-summarize-from-file px-3 py-1 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 text-violet-300 text-xs font-bold rounded-lg transition-all';
+              sumFromFileBtn.textContent = 'AI 요약';
+              sumFromFileBtn.dataset.courseId = courseId;
+              sumFromFileBtn.dataset.lectureTitle = lec.title;
+              sumFromFileBtn.dataset.weekLabel = lec.week_label;
+              actions.appendChild(sumFromFileBtn);
+            }
+          } else {
+            const downloadBtn = document.createElement('button');
+            downloadBtn.className = 'btn-download-lec px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold rounded-lg transition-all';
+            downloadBtn.textContent = '영상 다운로드';
+            actions.appendChild(downloadBtn);
+            const downloadStatus = document.createElement('span');
+            downloadStatus.className = 'download-status hidden text-xs text-slate-400';
+            actions.appendChild(downloadStatus);
+          }
         }
-        if (comp === 'completed' && lec.summary && lec.summary.available && lec.summary.id) {
+        if (lec.summary && lec.summary.available && lec.summary.id) {
           row.dataset.summaryId = lec.summary.id;
           const summaryBtn = document.createElement('button');
           summaryBtn.className = 'btn-summary-lec px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold rounded-lg transition-all';
@@ -487,6 +505,13 @@ async function loadCourseDetail(courseId, courseName) {
         e.stopPropagation();
         const row = btn.closest('.lecture-row');
         await startDownload(row, btn);
+      });
+    });
+    $$('.btn-summarize-from-file', weeks).forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const row = btn.closest('.lecture-row');
+        await startSummarizeFromFile(btn.dataset.courseId, btn.dataset.lectureTitle, btn.dataset.weekLabel, row, btn);
       });
     });
     $$('.btn-summary-lec', weeks).forEach(btn => {
@@ -681,6 +706,58 @@ async function startSummarize(sourceTaskId, row, button) {
   }
 }
 
+async function startSummarizeFromFile(courseId, lectureTitle, weekLabel, row, button) {
+  button.disabled = true;
+  button.textContent = '요약 중...';
+  button.classList.add('opacity-50', 'cursor-not-allowed');
+  try {
+    const res = await api('POST', '/api/tasks/summarize-from-file', {
+      course_id: courseId,
+      lecture_title: lectureTitle,
+      week_label: weekLabel,
+    });
+    const taskId = res.task_id;
+    const poll = async () => {
+      try {
+        const task = await api('GET', `/api/tasks/${taskId}`);
+        if (task.status === 'completed') {
+          const summaryId = task.result?.summary_id;
+          button.remove();
+          if (summaryId) {
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'btn-summary-view px-3 py-1 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 text-violet-300 text-xs font-bold rounded-lg transition-all';
+            viewBtn.textContent = '요약 보기';
+            viewBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openSummary(summaryId, lectureTitle, weekLabel);
+            });
+            row.querySelector('[data-actions]')?.appendChild(viewBtn);
+          }
+          return;
+        }
+        if (task.status === 'failed' || task.status === 'cancelled') {
+          button.disabled = false;
+          button.textContent = 'AI 요약 재시도';
+          button.classList.remove('opacity-50', 'cursor-not-allowed');
+          return;
+        }
+        button.textContent = task.message || '요약 중...';
+        setTimeout(poll, 1500);
+      } catch {
+        button.disabled = false;
+        button.textContent = 'AI 요약 재시도';
+        button.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+    };
+    poll();
+  } catch (err) {
+    button.disabled = false;
+    button.textContent = 'AI 요약';
+    button.classList.remove('opacity-50', 'cursor-not-allowed');
+    alert(`요약 시작 실패: ${err.message}`);
+  }
+}
+
 function startAutoDownloadAfterPlayback(playerStatus, messageLog) {
   messageLog.textContent = '재생 완료 후 자동 다운로드를 시작합니다.';
   messageLog.classList.remove('hidden');
@@ -697,9 +774,11 @@ function startAutoDownloadAfterPlayback(playerStatus, messageLog) {
         const pct = Number.isFinite(task.progress_pct) ? ` ${Math.round(task.progress_pct)}%` : '';
         if (task.status === 'completed') {
           stopDownloadTaskPolling(taskId);
-          const files = task.result?.files || [];
-          const fileText = files.length ? files.map(f => f.type).join(', ') : '파일';
-          messageLog.textContent = `자동 다운로드 완료: ${fileText}`;
+          const files = (task.result?.files || []).filter(f => f.deleted !== 'true');
+          const fileText = files.length
+            ? '완료: ' + files.map(f => f.path.split('/').pop()).join(', ')
+            : '다운로드 완료';
+          messageLog.textContent = `자동 다운로드 ${fileText}`;
           return;
         }
         if (task.status === 'failed') {

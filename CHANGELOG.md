@@ -1,5 +1,41 @@
 # Changelog
 
+## [v26.04.13] - 2026-04-16
+
+### P0/P1 안정성 개선 · 로깅 강화 · 문서 최신화
+
+#### 수정 (버그·안정성)
+
+- **`courses.py` Race condition 제거** (`backend/api/routes/courses.py`)
+  - `get_courses()` 엔드포인트에 `_courses_load_lock` 적용 — 동시 요청 시 `fetch_courses()` 중복 실행 방지
+  - 강의 목록 로드 실패 시 `503` HTTP 에러로 명확한 응답 반환
+- **`crypto.py` 키 경로 로직 통합** (`src/crypto.py`)
+  - `_load_or_create_key()`의 인라인 중복 경로 계산을 `_resolve_key_path()` 호출로 통합
+  - `.secret_key`가 디렉토리인 경우(Docker 볼륨 마운트) `logger.warning`으로 경고 출력
+  - `decrypt()`의 `except (InvalidToken, Exception)` → `InvalidToken`과 일반 `Exception` 분리 처리 — 예상 밖 오류는 `logger.warning` 기록
+- **`backend/main.py` 초기화 오류 명확화** (`backend/main.py`)
+  - `db.init()` / `Config.load()` 실패 시 `logger.critical` + `RuntimeError` 발생 — 기존 traceback 크래시 → 즉시 원인 파악 가능
+
+#### 개선 (로깅·가시성)
+
+- **`background_player.py` 무음 예외 개선** (`src/player/background_player.py`)
+  - networkidle 대기 실패 / Plan A·B commons meta duration 조회 실패 시 `except Exception: pass` → `log(...)` 호출로 교체 (3곳)
+- **`video_downloader.py` 프레임 평가 오류 로깅** (`src/downloader/video_downloader.py`)
+  - 주석 처리된 디버그 코드 제거, `except Exception: pass` → `logger.debug("frame 평가 오류: %s", e)`로 교체
+  - `logging` 모듈 및 `logger` 추가
+- **자동 다운로드 완료 파일명 표시** (`frontend/js/app.js`)
+  - 재생 후 자동 다운로드 완료 메시지가 파일 타입(`mp4, mp3`)만 표시하던 것을 실제 파일명(`완료: 파일명.mp4`)으로 변경 — 일반 다운로드 완료 표시와 일관성 확보
+
+#### 문서
+
+- **`docs/lms-analysis.md` 최신화** — 3개 섹션 갱신
+  - 인증(섹션 2): `expect_navigation` 방식 → 폴링 기반 판정 흐름, JS 다이얼로그 처리, `ensure_logged_in()` 진입점 설명 추가
+  - 백그라운드 재생(섹션 5): "ARM64 전용" → "항상 적용"으로 H.264 우회 설명 수정, 사전 처리 라우트/리스너 표(`_sniff_attendance_duration`, `_fix_commons_endat`, `_block_flash_global`) 추가, ErrAlreadyInView 우회 2단계 → 3단계로 갱신
+  - 브라우저 설정(섹션 7): 신규 인수 8개 추가(`--disable-web-security`, `--use-fake-ui-for-media-stream`, `--window-size`, `--js-flags`, `--aggressive-cache-discard`, `--renderer-process-limit=2` 등)
+- **`docs/web-completeness-checklist.md` 삭제** — 구현 완료로 불필요
+
+---
+
 ## [v26.04.12] - 2026-04-15
 
 ### P2-A: 텔레그램 테스트, 마감 알림, Task 영속화 + 프론트엔드 모듈 분리

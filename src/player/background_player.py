@@ -1173,8 +1173,8 @@ async def _play_lecture_inner(
             log("    → networkidle 대기 후 frame 재탐색...")
             try:
                 await page.wait_for_load_state("networkidle", timeout=30000)
-            except Exception:
-                pass
+            except Exception as e:
+                log(f"    → networkidle 대기 실패 (계속 진행): {e}")
             # networkidle 대기 중 learningx API로 duration을 미리 조회
             # endat=0.00 강의는 Plan A 진행 시 fallback_duration이 없으면 재생 실패하므로
             # 여기서 item_content_data.duration을 얻어 fallback_duration으로 사용
@@ -1289,8 +1289,8 @@ async def _play_lecture_inner(
                         fallback_duration = float(meta_dur)
                         log(f"    → commons meta duration={fallback_duration:.1f}s → fallback_duration 적용")
                         break
-                except Exception:
-                    pass
+                except Exception as e:
+                    log(f"    → commons meta duration 조회 실패 (frame={f.url[:60]}): {e}")
         # Plan A에서 열린 sl=1 commons 프레임을 Plan B에 전달:
         # sl=0 재로드 없이 동일 세션 컨텍스트에서 JSONP를 호출하므로 ErrAlreadyInView 방지
         return await _play_via_progress_api(
@@ -1556,8 +1556,8 @@ async def _play_lecture_inner(
                 if meta_dur and meta_dur > 0:
                     fallback_duration = float(meta_dur)
                     log(f"    → commons meta duration={fallback_duration:.1f}s → fallback_duration 적용")
-            except Exception:
-                pass
+            except Exception as e:
+                log(f"    → commons meta duration 조회 실패 (Plan B): {e}")
         return await _play_via_progress_api(page, player_url_snapshot, on_progress, log, fallback_duration)
 
     # Plan A 완료 후 progress API에 100% 직접 보고

@@ -5,6 +5,7 @@ Playwright로 LMS 강의 페이지에서 video URL을 추출한 뒤,
 requests로 청크 스트리밍 다운로드한다.
 """
 
+import logging
 import re
 import time
 from collections.abc import Callable
@@ -13,6 +14,8 @@ from pathlib import Path
 
 import requests
 from playwright.async_api import Page
+
+logger = logging.getLogger(__name__)
 
 from src.player.background_player import _click_play, _dismiss_dialog, _find_player_frame
 
@@ -181,8 +184,8 @@ async def extract_video_url(page: Page, lecture_url: str) -> str | None:
                     #     print(f"  [DBG]   fallback video.src: {str(result)[:80]}")
                     if result:
                         return result
-                except Exception:
-                    pass  # if i % 10 == 0: print(f"  [DBG]   video 평가 오류: {e}")
+                except Exception as e:
+                    logger.debug("frame 평가 오류 (계속 탐색): %s", e)
 
             await asyncio.sleep(0.5)
 

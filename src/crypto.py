@@ -7,9 +7,12 @@
 암호화된 값은 "enc:" 접두사로 구별한다.
 """
 
+import logging
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
+
+logger = logging.getLogger(__name__)
 
 _PREFIX = "enc:"
 _KEY_PATH = Path(__file__).parent.parent / ".secret_key"
@@ -34,16 +37,19 @@ def _load_or_create_key() -> bytes:
     Docker 볼륨 마운트 시 .secret_key가 디렉토리로 생성될 수 있으므로
     디렉토리인 경우 내부의 key 파일을 사용한다.
     """
-    key_file = _KEY_PATH / "key" if _KEY_PATH.is_dir() else _KEY_PATH
+    if _KEY_PATH.is_dir():
+        logger.warning(
+            ".secret_key가 파일이 아닌 디렉토리입니다 (Docker 볼륨 마운트로 추정). "
+            "키를 %s/key 에 저장합니다. 호스트에서 해당 경로를 유지해야 복호화가 가능합니다.",
+            _KEY_PATH,
+        )
+
+    key_file = _resolve_key_path()
 
     if key_file.exists() and key_file.is_file():
         return key_file.read_bytes().strip()
 
     key = Fernet.generate_key()
-    if _KEY_PATH.is_dir():
-        key_file = _KEY_PATH / "key"
-    else:
-        key_file = _KEY_PATH
     key_file.write_bytes(key)
     try:
         key_file.chmod(0o600)
@@ -73,7 +79,10 @@ def decrypt(value: str) -> str:
     token = value[len(_PREFIX) :]
     try:
         return _fernet().decrypt(token.encode()).decode()
-    except (InvalidToken, Exception):
+    except InvalidToken:
+        return ""
+    except Exception as e:
+        logger.warning("복호화 중 예상 밖 오류: %s", e)
         return ""
 
 

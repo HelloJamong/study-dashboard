@@ -21,6 +21,51 @@ class DownloadUnsupportedError(RuntimeError):
     """LMS 강의 유형상 다운로드를 지원하지 않을 때 발생한다."""
 
 
+def download_info_for_lecture(
+    *,
+    download_dir: str,
+    course_name: str,
+    week_label: str,
+    lecture_title: str,
+    rule: str,
+) -> dict[str, Any]:
+    """강의 다운로드 파일 존재 여부를 검사한다."""
+    try:
+        base_dir, mp4_path = build_download_paths(
+            download_dir=download_dir,
+            course_name=course_name,
+            week_label=week_label,
+            lecture_title=lecture_title,
+        )
+    except (ValueError, Exception):
+        return {"exists": False}
+
+    mp3_path = mp4_path.with_suffix(".mp3")
+    txt_path = mp4_path.with_suffix(".txt")
+
+    has_mp4 = mp4_path.is_file()
+    has_mp3 = mp3_path.is_file()
+    has_txt = txt_path.is_file()
+
+    normalized_rule = normalize_download_rule(rule)
+    if normalized_rule == "mp4":
+        exists = has_mp4
+    elif normalized_rule == "mp3":
+        exists = has_mp3
+    else:
+        exists = has_mp4 or has_mp3
+
+    return {
+        "exists": exists,
+        "has_mp4": has_mp4,
+        "has_mp3": has_mp3,
+        "has_txt": has_txt,
+        "mp4_path": str(mp4_path) if has_mp4 else None,
+        "mp3_path": str(mp3_path) if has_mp3 else None,
+        "txt_path": str(txt_path) if has_txt else None,
+    }
+
+
 def build_download_paths(
     *,
     download_dir: str,

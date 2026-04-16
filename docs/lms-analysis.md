@@ -62,9 +62,12 @@ canvas.ssu.ac.kr (Learning X 메인)
 
 ```
 canvas.ssu.ac.kr → SSO 로그인 페이지 리디렉션
+→ .login_btn a 클릭 (SSO 폼 진입)
 → input#userid + input#pwd 입력
-→ a.btn_login 클릭 (네비게이션 대기)
-→ URL에 "login"이 없으면 성공
+→ a.btn_login 클릭
+→ 폴링으로 성공/실패 판정 (최대 10초, 0.25초 간격)
+  ├── 성공: canvas.ssu.ac.kr URL + "login" 없음 + .login_btn 없음
+  └── 실패: JS 다이얼로그 감지 | 오류 문구 감지 | 로그인 폼 3초 이상 유지 | 타임아웃
 ```
 
 ### 핵심 셀렉터
@@ -75,18 +78,28 @@ canvas.ssu.ac.kr → SSO 로그인 페이지 리디렉션
 | 학번 입력란 | `input#userid` |
 | 비밀번호 입력란 | `input#pwd` |
 | 로그인 제출 버튼 | `a.btn_login` |
+| 로그인 필요 감지 | `.login_btn` (visible 여부) |
 
 ### 코드
 
 ```python
-# src/auth/login.py
+# src/auth/login.py: perform_login()
+page.on("dialog", _on_dialog)  # JS 다이얼로그 자동 수락 + 실패 감지
+
+login_button = await page.query_selector(".login_btn a")
+if login_button:
+    await login_button.click()
+    await page.wait_for_selector("input#userid", timeout=10_000)
+
 await page.fill("input#userid", username)
 await page.fill("input#pwd", password)
-async with page.expect_navigation(wait_until="networkidle"):
-    await page.click("a.btn_login")
-if "login" in page.url:
-    return False  # 실패
+await page.click("a.btn_login")
+
+return await _wait_for_login_result(page, dialog_seen)
+# 실패 조건: JS 다이얼로그 | "로그인 실패" 등 오류 텍스트 | 폼 3초 유지 | 10초 타임아웃
 ```
+
+> `ensure_logged_in(page, username, password)` — `_needs_login()`으로 상태 확인 후 필요 시에만 `perform_login()` 호출하는 공개 진입점.
 
 ---
 
@@ -248,17 +261,18 @@ Learning X의 출석 처리는 영상 플레이어가 진도 API(`TargetUrl`)에
 | 재생 버튼 | `.vc-front-screen-play-btn` |
 | 비디오 요소 | `video.vc-vplay-video1` |
 
-#### ARM64 H.264 우회 (Docker / Apple Silicon)
+#### H.264 우회 (항상 적용)
 
-Chromium headless는 H.264(mp4)를 지원하지 않아 플레이어가 `flashErrorPage.html`로 분기한다. 이를 우회하기 위해:
+Chromium headless는 H.264(mp4)를 지원하지 않아 플레이어가 `flashErrorPage.html`로 분기한다. 환경(ARM64, Docker, Apple Silicon 등)과 무관하게 항상 우회 경로를 등록한다.
 
-1. ffmpeg으로 VP8 WebM 더미 영상 생성 (2×2 픽셀, 강의 길이만큼)
-2. `page.route("**/*.mp4", ...)` — MP4 요청을 WebM으로 교체
-3. `canPlayType` / `MediaSource.isTypeSupported` JS 오버라이드 — 플레이어가 MP4를 요청하도록 유도
+1. ffmpeg으로 VP8 WebM 더미 영상 lazy 생성 (2×2 픽셀, 강의 길이만큼 — MP4 요청 시점에 생성)
+2. `page.route("**/*.mp4", ...)` — 모든 MP4 요청을 WebM으로 교체
+3. `canPlayType` / `MediaSource.isTypeSupported` init script 오버라이드 — 플레이어가 MP4를 요청하도록 유도
 4. `GetCurrentTime` / `GetTotalDuration` / `sendPlayedTime` 오버라이드 — 가짜 영상의 재생 시간이 진도 API에 올바르게 전달되도록 보정
+5. `isPlayedContent = true` / `afterPlayStateChange('play')` 강제 호출 — 플레이어 JS가 START 이벤트를 발생시키지 않는 경우 보완
 
 ```python
-# 더미 영상 생성
+# 더미 영상 생성 (MP4 요청 시 lazy 생성, 캐시 재사용)
 await asyncio.create_subprocess_exec(
     "ffmpeg", "-f", "lavfi", "-i", "color=black:s=2x2:r=1",
     "-f", "lavfi", "-i", "anullsrc=r=8000:cl=mono",
@@ -266,13 +280,17 @@ await asyncio.create_subprocess_exec(
     "-c:a", "libopus", "-b:a", "8k", output_path
 )
 
-# MP4 요청 인터셉트
-await page.route("**/*.mp4", lambda route, _: route.fulfill(
-    status=200,
-    headers={"Content-Type": "video/webm"},
-    body=fake_video_bytes,
-))
+# MP4 요청 인터셉트 (항상 등록)
+await page.route("**/*.mp4", _serve_fake)
 ```
+
+#### 사전 처리 라우트 및 리스너 (page.goto 이전 등록)
+
+| 이름 | 대상 | 목적 |
+|------|------|------|
+| `_sniff_attendance_duration` | `response` 이벤트 | `attendance_items` / `lecture_attendance` 응답에서 `duration` 미리 추출 — MP4 요청 전에 올바른 길이를 확보 |
+| `_fix_commons_endat` | `**/commons.ssu.ac.kr/em/**` | 스니핑된 `duration`으로 `endat` 파라미터 교정 — 이전 시청 위치로 고정된 경우 전체 길이로 재설정 |
+| `_block_flash_global` | `**/flashErrorPage.html` | `flashErrorPage` 응답을 빈 HTML로 교체 — H.264 실패 시 sl=1 세션이 무효화되는 것을 처음부터 방지 |
 
 ### Plan B: 진도 API 직접 호출
 
@@ -308,12 +326,15 @@ https://commons.ssu.ac.kr/em/{content_id}
 
 #### ErrAlreadyInView 우회
 
-`sl=1` 파라미터로 commons 뷰 세션이 열린 상태에서 canvas.ssu.ac.kr 컨텍스트에서 직접 호출하면 `ErrAlreadyInView` 오류가 반환된다.
+`sl=1` 파라미터로 commons 뷰 세션이 열린 상태에서 외부에서 직접 호출하면 `ErrAlreadyInView` 오류가 반환된다. 진도 보고는 아래 3단계 순서로 시도한다.
 
-| 상황 | 호출 방법 |
-|------|----------|
-| commons frame 살아있음 | frame 내부에서 JSONP script 태그 주입 → commons.ssu.ac.kr origin으로 요청 |
-| commons frame 없음 | 대시보드로 이동(세션 종료) → `page.request.get()` |
+| 순서 | 방법 | 조건 |
+|------|------|------|
+| 1 | `page.evaluate` fetch — canvas.ssu.ac.kr 동일 오리진으로 요청 | 항상 시도 (쿠키 자동 포함) |
+| 2 | JSONP script 태그 주입 (commons_frame 내부) | 1 실패 + commons frame 살아있음 |
+| 3 | `page.request.get()` | 1, 2 모두 실패 시 최후 수단 |
+
+Plan A에서 넘어온 경우 기존 sl=1 commons frame을 재사용(`existing_commons_frame`)하여 sl=0 재로드 없이 JSONP를 주입한다.
 
 ### learningx 타입 강의
 
@@ -447,11 +468,19 @@ Learning X가 headless 브라우저를 차단하는 경우를 대비해 일반 C
 | 인수 | 목적 |
 |------|------|
 | `--disable-blink-features=AutomationControlled` | 자동화 탐지 방지 |
-| `--enable-proprietary-codecs` | 독점 코덱 활성화 |
+| `--enable-proprietary-codecs` | 독점 코덱 활성화 시도 |
+| `--disable-web-security` | 크로스오리진 요청 허용 (진도 API 호출) |
+| `--use-fake-ui-for-media-stream` | 미디어 스트림 권한 팝업 억제 |
 | `--no-sandbox` / `--disable-setuid-sandbox` | Docker 환경 대응 |
-| `--disable-dev-shm-usage` | Docker 메모리 문제 방지 |
+| `--disable-dev-shm-usage` | Docker 공유 메모리 부족 방지 |
+| `--disable-accelerated-2d-canvas` | 렌더링 안정성 |
+| `--no-first-run` / `--no-zygote` | 초기화 프로세스 생략 |
 | `--disable-gpu` | headless 안정성 |
+| `--window-size=1280,720` | 뷰포트 고정 |
 | `--password-store=basic` | macOS Keychain 접근 경고 제거 |
+| `--js-flags=--max-old-space-size=1024` | JS 힙 상한 설정 (메모리 누수 방지) |
+| `--aggressive-cache-discard` | 메모리 압박 시 캐시 조기 해제 |
+| `--renderer-process-limit=2` | 렌더러 프로세스 수 제한 (메모리 절약) |
 
 ### JS 위장 (init script)
 

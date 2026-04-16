@@ -6,6 +6,8 @@ from backend.api.state import app_state
 from backend.api.summary_store import summary_for_lecture
 from fastapi import APIRouter, HTTPException
 
+from src.config import Config
+
 router = APIRouter()
 
 _courses_load_lock = asyncio.Lock()
@@ -28,11 +30,18 @@ def _summaries_dir() -> Path:
 async def get_courses():
     _require_auth()
 
-    if not app_state.courses:
-        courses = await app_state.scraper.fetch_courses()
-        details = await app_state.scraper.fetch_all_details(courses, concurrency=3)
-        app_state.courses = courses
-        app_state.details = details
+    async with _courses_load_lock:
+        if not app_state.courses:
+            try:
+                courses = await app_state.scraper.fetch_courses()
+                details = await app_state.scraper.fetch_all_details(courses, concurrency=3)
+                app_state.courses = courses
+                app_state.details = details
+            except Exception as e:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"강의 정보를 불러오지 못했습니다. ({type(e).__name__})",
+                ) from e
 
     result = []
     for i, course in enumerate(app_state.courses):
@@ -132,11 +141,25 @@ async def get_course_detail(course_id: str):
     if not detail:
         raise HTTPException(status_code=404, detail="강의 정보를 불러오지 못했습니다.")
 
+    from src.downloader.pipeline import download_info_for_lecture
+
     weeks = []
     for week in detail.weeks:
         lectures = []
         for lec in week.lectures:
             summary = summary_for_lecture(course.term, course.long_name, lec.week_label, lec.title)
+            dl_info: dict = {"exists": False}
+            if lec.is_video and Config.DOWNLOAD_ENABLED == "true":
+                try:
+                    dl_info = download_info_for_lecture(
+                        download_dir=Config.get_download_dir(),
+                        course_name=course.long_name,
+                        week_label=lec.week_label,
+                        lecture_title=lec.title,
+                        rule=Config.get_download_rule(),
+                    )
+                except Exception:
+                    pass
             lectures.append(
                 {
                     "title": lec.title,
@@ -152,6 +175,7 @@ async def get_course_detail(course_id: str):
                     "has_summary": summary["available"],
                     "summary_id": summary["id"],
                     "summary": summary,
+                    "download_info": dl_info,
                 }
             )
         weeks.append(

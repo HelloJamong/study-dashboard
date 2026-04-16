@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -5,14 +6,25 @@ from backend.api.routes import auth, auto, courses, deadline, logs, player, sett
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from src import db
     from src.config import Config
 
-    db.init()
-    Config.load()
+    try:
+        db.init()
+    except Exception as e:
+        logger.critical("DB 초기화 실패 — 앱을 시작할 수 없습니다: %s", e)
+        raise RuntimeError(f"DB 초기화 실패: {e}") from e
+
+    try:
+        Config.load()
+    except Exception as e:
+        logger.critical("설정 로드 실패 — 앱을 시작할 수 없습니다: %s", e)
+        raise RuntimeError(f"설정 로드 실패: {e}") from e
 
     from backend.api.task_manager import task_manager
     task_manager.purge_old(days=7)
