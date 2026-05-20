@@ -943,13 +943,29 @@ async function updateAutoUI() {
   } catch {}
 }
 
+function _showAutoWarnings(warnings) {
+  const el = $('#auto-warnings');
+  if (!el) return;
+  if (!warnings || !warnings.length) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = warnings.map(w =>
+    `<p class="text-xs text-amber-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${w}</p>`
+  ).join('');
+  el.classList.remove('hidden');
+}
+
 $('#toggle-auto').addEventListener('change', async (e) => {
   const enabled = e.target.checked;
   try {
     if (enabled) {
-      await api('POST', '/api/auto/start', { schedule_hours: state.autoScheduleHours });
+      const res = await api('POST', '/api/auto/start', { schedule_hours: state.autoScheduleHours });
+      _showAutoWarnings(res.warnings);
     } else {
       await api('POST', '/api/auto/stop');
+      _showAutoWarnings([]);
     }
     state.autoEnabled = enabled;
     updateAutoUI();

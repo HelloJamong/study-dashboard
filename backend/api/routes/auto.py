@@ -377,7 +377,19 @@ async def auto_start(req: AutoStartRequest):
     app_state.auto.task = managed.task
     app_state.auto.task_id = managed.id
 
-    return {"started": True, "schedule_hours": hours, "task_id": managed.id}
+    # 미설정 기능 소프트 경고 (시작을 막지는 않음)
+    from src.config import Config
+    warnings: list[str] = []
+    if Config.DOWNLOAD_ENABLED != "true" or Config.AUTO_DOWNLOAD_AFTER_PLAY != "true":
+        warnings.append("재생 완료 후 자동 다운로드가 비활성화되어 있어 STT·AI 요약이 실행되지 않습니다.")
+    elif Config.STT_ENABLED != "true":
+        warnings.append("STT가 비활성화되어 있어 AI 요약이 실행되지 않습니다.")
+    elif Config.AI_ENABLED != "true":
+        warnings.append("AI 요약이 비활성화되어 있습니다.")
+    if not (Config.TELEGRAM_ENABLED == "true" and Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHAT_ID):
+        warnings.append("텔레그램 알림이 설정되지 않아 진행 상황을 알림으로 받을 수 없습니다.")
+
+    return {"started": True, "schedule_hours": hours, "task_id": managed.id, "warnings": warnings}
 
 
 class AutoScheduleUpdate(BaseModel):
