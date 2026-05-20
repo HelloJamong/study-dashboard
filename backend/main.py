@@ -65,3 +65,15 @@ app.include_router(deadline.router, prefix="/api/deadline", tags=["deadline"])
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/version")
+async def version_check():
+    import asyncio
+
+    from src.config import APP_VERSION
+    from src.updater import check_update
+
+    loop = asyncio.get_running_loop()
+    latest = await loop.run_in_executor(None, check_update, APP_VERSION)
+    return {"current": APP_VERSION, "update_available": latest is not None, "latest": latest}

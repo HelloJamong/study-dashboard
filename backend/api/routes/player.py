@@ -65,6 +65,27 @@ def _write_playback_log(title: str, lecture_url: str, error: str, log_buffer: li
         return None
 
 
+async def _notify_playback_error(course_name: str, week_label: str, lecture_title: str) -> None:
+    """텔레그램 재생 실패 알림. 설정 미완성이면 무시."""
+    from contextlib import suppress
+
+    from src.config import Config
+    from src.notifier import telegram_notifier
+
+    if not (Config.TELEGRAM_ENABLED == "true" and Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHAT_ID):
+        return
+    with suppress(Exception):
+        await asyncio.get_running_loop().run_in_executor(
+            None,
+            telegram_notifier.notify_playback_error,
+            Config.TELEGRAM_BOT_TOKEN,
+            Config.TELEGRAM_CHAT_ID,
+            course_name,
+            week_label,
+            lecture_title,
+        )
+
+
 @router.post("/play")
 async def start_play(req: PlayRequest):
     _require_auth()
@@ -146,6 +167,7 @@ async def start_play(req: PlayRequest):
                     log_path=app_state.playback.log_path,
                     metadata={"task_id": managed.id},
                 )
+                await _notify_playback_error(course.long_name, req.week_label, req.lecture_title)
             elif final_state.ended:
                 app_state.playback.status = "completed"
                 updated = _mark_lecture_completed(req.course_id, req.lecture_url)
@@ -227,6 +249,7 @@ async def start_play(req: PlayRequest):
                 log_path=app_state.playback.log_path,
                 metadata={"task_id": managed.id},
             )
+            await _notify_playback_error(course.long_name, req.week_label, req.lecture_title)
         finally:
             app_state.is_playing = False
 

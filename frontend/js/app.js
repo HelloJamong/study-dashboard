@@ -56,6 +56,18 @@ function showLogin() {
   stopAllDownloadTaskPolling();
 }
 
+async function checkVersion() {
+  try {
+    const { current, update_available, latest } = await api('GET', '/api/version');
+    const el = $('#version-current');
+    if (el) el.textContent = `v${current}`;
+    if (update_available && latest) {
+      $('#version-latest-text').textContent = latest;
+      $('#version-badge')?.classList.remove('hidden');
+    }
+  } catch {}
+}
+
 function showApp(userId) {
   state.userId = userId;
   $('#page-login').classList.add('hidden');
@@ -65,6 +77,7 @@ function showApp(userId) {
   navigate('dashboard');
   startPolling();
   startAutoPolling();
+  checkVersion().catch(() => {});
 }
 
 // 로그인 폼
@@ -293,17 +306,62 @@ function switchTerm(term) {
   }
 }
 
-function loadSummaryTerm(term) {
+async function loadSummaryTerm(term) {
   const list = $('#courses-list');
-  list.innerHTML = `
-    <div class="flex flex-col items-center justify-center py-16 text-center">
-      <div class="w-14 h-14 bg-slate-800 rounded-2xl flex items-center justify-center mb-4">
-        <i class="fa-solid fa-folder-open text-slate-500 text-xl"></i>
-      </div>
-      <p class="font-semibold text-slate-300">${esc(term)}</p>
-      <p class="text-sm text-slate-500 mt-1">요약 기능 구현 후 이 학기의 강의 요약을 여기서 볼 수 있습니다.</p>
-    </div>
-  `;
+  list.innerHTML = `<div class="flex items-center justify-center py-16"><i class="fa-solid fa-spinner fa-spin text-indigo-400 text-2xl"></i></div>`;
+  try {
+    const { summaries } = await api('GET', '/api/summaries');
+    const items = summaries.filter(s => s.term === term);
+    if (!items.length) {
+      list.innerHTML = `
+        <div class="flex flex-col items-center justify-center py-16 text-center">
+          <div class="w-14 h-14 bg-slate-800 rounded-2xl flex items-center justify-center mb-4">
+            <i class="fa-solid fa-folder-open text-slate-500 text-xl"></i>
+          </div>
+          <p class="font-semibold text-slate-300">${esc(term)}</p>
+          <p class="text-sm text-slate-500 mt-1">이 학기의 저장된 요약이 없습니다.</p>
+        </div>`;
+      return;
+    }
+    // 과목별 그룹핑
+    const byCourse = {};
+    for (const s of items) {
+      if (!byCourse[s.course]) byCourse[s.course] = [];
+      byCourse[s.course].push(s);
+    }
+    list.innerHTML = '';
+    for (const [course, courseItems] of Object.entries(byCourse)) {
+      const card = document.createElement('div');
+      card.className = 'bg-[#1E293B] rounded-2xl border border-slate-700 overflow-hidden';
+      card.innerHTML = `
+        <div class="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
+          <div>
+            <h3 class="font-semibold text-white">${esc(course)}</h3>
+            <p class="text-xs text-slate-500 mt-0.5">요약 ${courseItems.length}개</p>
+          </div>
+          <div class="w-8 h-8 bg-indigo-500/10 rounded-xl flex items-center justify-center">
+            <i class="fa-solid fa-file-lines text-indigo-400 text-sm"></i>
+          </div>
+        </div>
+        <div class="divide-y divide-slate-700/50">
+          ${courseItems.map(s => `
+            <div class="flex items-center justify-between px-5 py-3 hover:bg-slate-800/50 cursor-pointer transition-colors lecture-row"
+              data-summary-id="${esc(s.id)}" data-title="${esc(s.title)}" data-week="${esc(s.week)}">
+              <div>
+                <p class="text-sm text-slate-200">${esc(s.title)}</p>
+                <p class="text-xs text-slate-500 mt-0.5">${esc(s.week)}</p>
+              </div>
+              <span class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">요약 보기</span>
+            </div>`).join('')}
+        </div>`;
+      card.querySelectorAll('[data-summary-id]').forEach(row => {
+        row.addEventListener('click', () => openSummary(row.dataset.summaryId, row.dataset.title, row.dataset.week));
+      });
+      list.appendChild(card);
+    }
+  } catch (err) {
+    list.innerHTML = `<p class="text-red-400 text-sm px-2">${esc(err.message)}</p>`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
