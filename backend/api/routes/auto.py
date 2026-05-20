@@ -310,6 +310,18 @@ async def _auto_loop() -> None:
                 return
 
             await _run_auto_cycle()
+
+            # 사이클 완료 후 브라우저 재시작 (Chromium 메모리 누적 방지)
+            if app_state.auto.enabled and app_state.scraper:
+                try:
+                    await app_state.scraper.close()
+                    await app_state.scraper.start()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    app_state.auto.error = f"브라우저 재시작 실패: {e}"
+                    app_state.auto.enabled = False
+                    return
     finally:
         app_state.auto.enabled = False
         app_state.auto.current_course = ""
