@@ -1,5 +1,31 @@
 # Changelog
 
+## [v26.05.1] - 2026-05-20
+
+### study-helper 원본 대비 미마이그레이션·미완성 기능 완성
+
+#### 수정 (안정성·퇴보 복구)
+
+- **`_send_document` 검증 로직 복구** (`src/notifier/telegram_notifier.py`)
+  - 파일 존재 여부 확인, 50 MB 크기 제한, HTTP/API 오류 상세 로깅(`_err`) 재추가 — 대시보드 이식 과정에서 누락된 study-helper 원본 로직 복원
+- **자동 모드 브라우저 재시작 추가** (`backend/api/routes/auto.py`)
+  - `_auto_loop()` 각 사이클 완료 후 `scraper.close()` + `scraper.start()` 호출 — 장시간 자동 재생 시 Chromium 메모리 누적 방지
+
+#### 추가
+
+- **자동 모드 미설정 기능 소프트 경고** (`backend/api/routes/auto.py`, `frontend/index.html`, `frontend/js/app.js`)
+  - `POST /api/auto/start` 응답에 `warnings[]` 추가 — 다운로드 자동화·STT·AI 요약·텔레그램 미설정 시 항목별 경고 메시지 포함
+  - 프론트엔드 자동 모드 카드에 `#auto-warnings` 배너 추가 — 경고 ON 시 amber 텍스트로 표시, OFF 시 초기화
+- **수동 재생 실패 텔레그램 알림** (`backend/api/routes/player.py`)
+  - `_notify_playback_error()` 헬퍼 추가 — 재생 오류(`final_state.error`)와 예외(`except Exception`) 두 경로 모두에서 텔레그램 알림 전송
+- **과거 학기 요약 탐색 구현** (`frontend/js/app.js`)
+  - `loadSummaryTerm()`을 async 함수로 교체 — `GET /api/summaries` 호출 후 선택 학기 필터링, 과목별 그룹 카드 렌더링, 각 요약 클릭 시 요약 팝업 연결
+- **버전 체크 API 및 프론트엔드 업데이트 배지** (`backend/main.py`, `frontend/index.html`, `frontend/js/app.js`)
+  - `GET /api/version` 엔드포인트 추가 — Docker Hub 최신 태그를 비동기 조회하여 업데이트 가능 여부 반환
+  - 로그인 후 버전 조회 자동 실행 — 사이드바 하단에 현재 버전 표시, 업데이트 가능 시 amber 배지 표시
+
+---
+
 ## [v26.04.13] - 2026-04-16
 
 ### P0/P1 안정성 개선 · 로깅 강화 · 문서 최신화
